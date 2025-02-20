@@ -1,0 +1,9 @@
+# Normalize EOL for all files that Git considers text files.
+* text=auto eol=lf
+
+# Exclude everything by default
+/* export-ignore
+
+# But include the addons/UniParticles3D folder
+!/addons export-ignore
+!/addons/UniParticles3D export-ignore
