@@ -2,7 +2,7 @@
 
 A simple yet powerful 3D Particle System for Godot 4.3+. UniParticles3D provides an intuitive, modular approach to creating particle effects with a familiar interface inspired by Unity's particle system.
 
-<video src='https://github.com/user-attachments/assets/b901ea3f-beb7-4ea0-9268-0acef65a6628' width=500/>
+<video src="https://github.com/user-attachments/assets/b901ea3f-beb7-4ea0-9268-0acef65a6628"></video>
 
 ## Overview
 
