@@ -451,108 +451,323 @@ func _process_individual_property_with_map(child, object: Object, property_map: 
 #region BurstDefinitionEditor
 class BurstDefinitionsEditor extends VBoxContainer:
 	var edited_object: UniParticles3D
+	var table_header: HBoxContainer
+	var definitions_container: VBoxContainer
+	var content_container: VBoxContainer
 
 	func _ready() -> void:
-		var add_button = Button.new()
-		add_button.text = "Add Burst Definition"
-		add_button.pressed.connect(_on_add_pressed)
-		add_child(add_button)
+		# Create foldout header
+		var header = Button.new()
+		header.text = " >   Bursts"
+		header.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		header.toggle_mode = true
+		header.button_pressed = false
 
-		_refresh_list()
+		var spacer = Control.new()
+		spacer.custom_minimum_size.y = 10
+		add_child(spacer)
 
-	func _on_add_pressed() -> void:
-		# Add 4 new values for the new burst definition
-		var new_array:Array = edited_object.bursts.duplicate()
-		new_array.append_array.call_deferred([0.0, 10.0, 10.0, 0.0])
-		edited_object.set("bursts", new_array)
-		edited_object.bursts = new_array
-		_refresh_list.call_deferred()
+		# Create stylebox for the arrow states
+		var normal_style = StyleBoxFlat.new()
+		normal_style.bg_color = Color(0.15, 0.15, 0.15)
+		normal_style.border_color = Color(0.25, 0.25, 0.25)
+		normal_style.border_width_bottom = 1
+		normal_style.content_margin_left = 20
+		header.add_theme_stylebox_override("normal", normal_style)
+		header.add_theme_stylebox_override("pressed", normal_style)
+		header.add_theme_stylebox_override("hover", normal_style)
+		header.add_theme_stylebox_override("hover_pressed", normal_style)
 
-	func _refresh_list() -> void:
-		# Clear existing definition controls
-		for child in get_children():
-			if child is HBoxContainer:
-				child.queue_free()
+		# Add header to main container
+		add_child(header)
 
-		# Add controls for each definition
-		var def_count = edited_object.bursts.size() / 4
-		for i in def_count:
-			var base_idx = i * 4
-			var container = HBoxContainer.new()
+		# Create container for table and add button
+		content_container = VBoxContainer.new()
+		content_container.add_theme_constant_override("separation", 8)
+		add_child(content_container)
+
+		# Create main panel
+		var panel = PanelContainer.new()
+		var panel_style = StyleBoxFlat.new()
+		panel_style.bg_color = Color(0.12, 0.12, 0.12)
+		panel.add_theme_stylebox_override("panel", panel_style)
+		content_container.add_child(panel)
+
+		var main_vbox = VBoxContainer.new()
+		main_vbox.add_theme_constant_override("separation", 0)
+		panel.add_child(main_vbox)
+
+		table_header = HBoxContainer.new()
+		table_header.add_theme_constant_override("separation", 0)
+
+		var headers = ["Time", "Count", "Cycles", "Interval", "Probability", ""]
+		for i in headers.size():
+			var header_panel = PanelContainer.new()
+
+			if headers[i] == "":
+				header_panel.custom_minimum_size.x = 30
+			else:
+				header_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var style = StyleBoxFlat.new()
+			style.bg_color = Color(0.2, 0.2, 0.2)
+			style.border_color = Color(0.25, 0.25, 0.25)
+			style.border_width_bottom = 1
+			if i < headers.size() - 1:
+				style.border_width_right = 1
+			header_panel.add_theme_stylebox_override("panel", style)
 
 			var label = Label.new()
-			label.text = "Time:"
-			container.add_child(label)
+			label.text = headers[i]
+			label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			label.custom_minimum_size.y = 24
+			if headers[i] == "":
+				label.custom_minimum_size.x = 20
+			else:
+				label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			header_panel.add_child(label)
+			table_header.add_child(header_panel)
 
-			# Time spinbox
-			var time_spin = SpinBox.new()
-			time_spin.min_value = 0
-			time_spin.step = 0.1
-			time_spin.value = edited_object.bursts[base_idx]
-			time_spin.value_changed.connect(_on_time_changed.bind(base_idx))
-			container.add_child(time_spin)
+		main_vbox.add_child(table_header)
 
+		# Create container for definitions
+		definitions_container = VBoxContainer.new()
+		definitions_container.add_theme_constant_override("separation", 5)
+		definitions_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		main_vbox.add_child(definitions_container)
 
-			label = Label.new()
-			label.text = "Min"
-			container.add_child(label)
+		# Add button
+		var add_button = Button.new()
+		add_button.text = "Add Burst"
+		add_button.pressed.connect(_on_add_pressed)
 
-			# Min particles spinbox
-			var min_spin = SpinBox.new()
-			min_spin.min_value = 1
-			min_spin.value = edited_object.bursts[base_idx + 1]
-			min_spin.value_changed.connect(_on_min_changed.bind(base_idx))
-			container.add_child(min_spin)
+		content_container.add_child(add_button)
 
-			label = Label.new()
-			label.text = "Max"
-			container.add_child(label)
+		# Connect header button
+		header.pressed.connect(_on_header_toggled)
+		_on_header_toggled()
+		_refresh_list()
 
-			# Max particles spinbox
-			var max_spin = SpinBox.new()
-			max_spin.min_value = 1
-			max_spin.value = edited_object.bursts[base_idx + 2]
-			max_spin.value_changed.connect(_on_max_changed.bind(base_idx))
-			container.add_child(max_spin)
+	func _on_header_toggled() -> void:
+		var header_button = get_child(1) as Button
+		content_container.visible = header_button.button_pressed
 
-			label = Label.new()
-			label.text = "Interval"
-			container.add_child(label)
-			# Interval spinbox
-			var interval_spin = SpinBox.new()
-			interval_spin.min_value = 0
-			interval_spin.step = 0.1
-			interval_spin.value = edited_object.bursts[base_idx + 3]
-			interval_spin.value_changed.connect(_on_interval_changed.bind(base_idx))
-			container.add_child(interval_spin)
+		# Update arrow
+		header_button.text = " %s   Bursts" % ("⌄" if header_button.button_pressed else ">")
+		if header_button.has_theme_stylebox_override("normal"):
+			var style = header_button.get_theme_stylebox("normal") as StyleBoxFlat
+			style.content_margin_left = 20
 
-			var remove_button = Button.new()
-			remove_button.text = "Del"
-			remove_button.pressed.connect(_on_remove_pressed.bind(i))
-			container.add_child(remove_button)
+	func _create_definition_row(index: int) -> HBoxContainer:
+		var base_idx = index * 9
+		var row = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 0)
 
-			add_child(container)
+		# Time spinbox
+		var time_cell = _create_cell()
+		var time_spin = SpinBox.new()
+		time_spin.min_value = 0
+		time_spin.step = 0.1
+		time_spin.value = edited_object.bursts[base_idx]
+		time_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		time_spin.value_changed.connect(_on_time_changed.bind(base_idx))
+		time_cell.add_child(time_spin)
+		row.add_child(time_cell)
 
+		# Count container
+		var count_cell = _create_cell()
+		var count_container = HBoxContainer.new()
+		count_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+		var count_mode = OptionButton.new()
+		count_mode.fit_to_longest_item = false
+		count_mode.add_item("Constant")  # Empty text, will only show arrow
+		count_mode.add_item("Random")
+		count_mode.selected = edited_object.bursts[base_idx + 1]
+		count_mode.flat = true
+		count_mode.custom_minimum_size.x = 24
+		count_mode.tooltip_text = "Constant/Random"
+		count_mode.item_selected.connect(_on_count_mode_changed.bind(base_idx))
+		count_mode.text = ""
+		var count_min = SpinBox.new()
+		count_min.min_value = 1
+		count_min.value = edited_object.bursts[base_idx + 2]
+		count_min.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		count_min.value_changed.connect(_on_count_min_changed.bind(base_idx))
+
+		var count_max = SpinBox.new()
+		count_max.min_value = 1
+		count_max.value = edited_object.bursts[base_idx + 3]
+		count_max.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		count_max.visible = edited_object.bursts[base_idx + 1] == 1
+		count_max.value_changed.connect(_on_count_max_changed.bind(base_idx))
+
+		count_container.add_child(count_min)
+		count_container.add_child(count_max)
+		count_container.add_child(count_mode)
+		count_cell.add_child(count_container)
+		row.add_child(count_cell)
+
+		# Cycles container
+		var cycles_cell = _create_cell()
+		var cycles_container = HBoxContainer.new()
+		cycles_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+		var cycles_mode = OptionButton.new()
+		cycles_mode.fit_to_longest_item = false
+		cycles_mode.add_item("Constant")  # Empty text, will only show arrow
+		cycles_mode.add_item("Random")
+		cycles_mode.selected = edited_object.bursts[base_idx + 4]
+		cycles_mode.flat = true
+		cycles_mode.custom_minimum_size.x = 24
+		cycles_mode.tooltip_text = "Constant/Random"
+		cycles_mode.item_selected.connect(_on_cycles_mode_changed.bind(base_idx))
+		cycles_mode.text = ""
+		var cycles_min = SpinBox.new()
+		cycles_min.min_value = 1
+		cycles_min.value = edited_object.bursts[base_idx + 5]
+		cycles_min.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cycles_min.value_changed.connect(_on_cycles_min_changed.bind(base_idx))
+
+		var cycles_max = SpinBox.new()
+		cycles_max.min_value = 1
+		cycles_max.value = edited_object.bursts[base_idx + 6]
+		cycles_max.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		cycles_max.visible = edited_object.bursts[base_idx + 4] == 1
+		cycles_max.value_changed.connect(_on_cycles_max_changed.bind(base_idx))
+
+		cycles_container.add_child(cycles_min)
+		cycles_container.add_child(cycles_max)
+		cycles_container.add_child(cycles_mode)
+		cycles_cell.add_child(cycles_container)
+		row.add_child(cycles_cell)
+
+		# Interval spinbox
+		var interval_cell = _create_cell()
+		var interval_spin = SpinBox.new()
+		interval_spin.min_value = 0
+		interval_spin.step = 0.1
+		interval_spin.value = edited_object.bursts[base_idx + 7]
+		interval_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		interval_spin.value_changed.connect(_on_interval_changed.bind(base_idx))
+		interval_cell.add_child(interval_spin)
+		row.add_child(interval_cell)
+
+		# Probability spinbox
+		var prob_cell = _create_cell()
+		var prob_spin = SpinBox.new()
+		prob_spin.min_value = 0
+		prob_spin.max_value = 1
+		prob_spin.step = 0.01
+		prob_spin.value = edited_object.bursts[base_idx + 8]
+		prob_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		prob_spin.value_changed.connect(_on_probability_changed.bind(base_idx))
+		prob_cell.add_child(prob_spin)
+		row.add_child(prob_cell)
+
+		# Delete button cell
+		var del_cell = _create_cell(true)
+		var delete_btn = Button.new()
+		delete_btn.text = "X"
+		delete_btn.modulate = Color(0.6, 0.2, 0.2)
+		delete_btn.custom_minimum_size.x = 20
+		delete_btn.pressed.connect(_on_remove_pressed.bind(index))
+		del_cell.add_child(delete_btn)
+		row.add_child(del_cell)
+
+		return row
+
+	func _create_cell(is_last: bool = false) -> PanelContainer:
+		var cell = PanelContainer.new()
+		var style = StyleBoxFlat.new()
+		style.bg_color = Color(0.15, 0.15, 0.15)
+		style.border_color = Color(0.25, 0.25, 0.25)
+		style.border_width_bottom = 1
+		if not is_last:
+			style.border_width_right = 1
+		cell.add_theme_stylebox_override("panel", style)
+		cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+		var margin = MarginContainer.new()
+		margin.add_theme_constant_override("margin_left", 4)
+		margin.add_theme_constant_override("margin_right", 4)
+		margin.add_theme_constant_override("margin_top", 4)
+		margin.add_theme_constant_override("margin_bottom", 4)
+		cell.add_child(margin)
+
+		return cell
+
+	func _on_add_pressed() -> void:
+		# Add 9 new values for the new burst definition
+		var new_array = edited_object.bursts.duplicate()
+		new_array.append_array([
+			0.0,                    # time
+			0,                      # count_mode (0=constant, 1=random)
+			10,                     # count_min
+			10,                     # count_max
+			0,                      # cycle_mode (0=constant, 1=random)
+			1,                      # cycles_min
+			1,                      # cycles_max
+			0.0,                    # interval
+			1.0                     # probability
+		])
+		edited_object.bursts = new_array
+		_refresh_list()
+
+	func _on_remove_pressed(index: int) -> void:
+		var base_idx = index * 9
+		# Remove 9 values at once
+		for i in range(9):
+			edited_object.bursts.remove_at(base_idx)
+		_refresh_list()
+
+	# Update value change handlers
 	func _on_time_changed(value: float, base_idx: int) -> void:
 		edited_object.bursts[base_idx] = value
 
-	func _on_min_changed(value: float, base_idx: int) -> void:
-		edited_object.bursts[base_idx + 1] = value
+	func _on_count_mode_changed(mode: int, base_idx: int) -> void:
+		edited_object.bursts[base_idx + 1] = mode
+		if mode == 0:  # Constant mode
+			edited_object.bursts[base_idx + 3] = edited_object.bursts[base_idx + 2]  # Set max = min
+		_refresh_list()
 
-	func _on_max_changed(value: float, base_idx: int) -> void:
+	func _on_count_min_changed(value: int, base_idx: int) -> void:
 		edited_object.bursts[base_idx + 2] = value
+		if edited_object.bursts[base_idx + 1] == 0:  # Constant mode
+			edited_object.bursts[base_idx + 3] = value
 
-	func _on_interval_changed(value: float, base_idx: int) -> void:
+	func _on_count_max_changed(value: int, base_idx: int) -> void:
 		edited_object.bursts[base_idx + 3] = value
 
-	func _on_remove_pressed(index: int) -> void:
-		var base_idx = index * 4
-		# Remove 4 values at once
-		edited_object.bursts.remove_at(base_idx + 3)
-		edited_object.bursts.remove_at(base_idx + 2)
-		edited_object.bursts.remove_at(base_idx + 1)
-		edited_object.bursts.remove_at(base_idx)
+	func _on_cycles_mode_changed(mode: int, base_idx: int) -> void:
+		edited_object.bursts[base_idx + 4] = mode
+		if mode == 0:  # Constant mode
+			edited_object.bursts[base_idx + 6] = edited_object.bursts[base_idx + 5]  # Set max = min
 		_refresh_list()
+
+	func _on_cycles_min_changed(value: int, base_idx: int) -> void:
+		edited_object.bursts[base_idx + 5] = value
+		if edited_object.bursts[base_idx + 4] == 0:  # Constant mode
+			edited_object.bursts[base_idx + 6] = value
+
+	func _on_cycles_max_changed(value: int, base_idx: int) -> void:
+		edited_object.bursts[base_idx + 6] = value
+
+	func _on_interval_changed(value: float, base_idx: int) -> void:
+		edited_object.bursts[base_idx + 7] = value
+
+	func _on_probability_changed(value: float, base_idx: int) -> void:
+		edited_object.bursts[base_idx + 8] = value
+
+	func _refresh_list() -> void:
+		# Clear existing definition controls
+		for child in definitions_container.get_children():
+			child.queue_free()
+
+		# Add row for each definition
+		for i in range(edited_object.bursts.size() / 9):
+			definitions_container.add_child(_create_definition_row(i))
+
 #endregion
 
 #region OptionalParametersHelper
@@ -802,7 +1017,7 @@ class ToggleGroupContainer extends PanelContainer:
 			if sibling == self or sibling.get_parent() == self:
 				continue
 			#print("%s Checking if should add %s ... should? %s" % [name, sibling.get_edited_property() if (sibling is EditorProperty) else "??", not ((not sibling is EditorProperty) or not sibling.get_edited_property() in properties_inside)])
-			if (sibling is BurstDefinitionsEditor) and "emitting" in properties_inside:
+			if (sibling is BurstDefinitionsEditor) and "emission_type" in properties_inside:
 				siblings.append(sibling)
 				continue
 			if (not sibling is EditorProperty) or not sibling.get_edited_property() in properties_inside:

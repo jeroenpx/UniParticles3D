@@ -76,41 +76,51 @@ class BurstInstance extends RefCounted:
 	var time: float = 0.0
 	var min_particles: int = 10
 	var max_particles: int = 10
+	var min_cycles: int = 1
+	var max_cycles: int = 1
 	var particle_interval: float = 0.0
-	var _remaining_particles: int = 0
-	var _next_emission_time: float = 0.0
+	var probability: float = 1.0
+	var _remaining_cycles: int = 0
+	var _next_cycle_time: float = 0.0
 	var _particles_in_burst: int = 0  # Total particles in this burst
 	var _current_burst_index: int = 0  # Current particle index in burst
 
 	func initialize() -> void:
-		_remaining_particles = randi_range(min_particles, max_particles)
-		_particles_in_burst = _remaining_particles  # Store total count
-		_next_emission_time = 0.0
+		_remaining_cycles = randi_range(min_cycles, max_cycles)
+		_next_cycle_time = time
+		_reset_burst()
+
+	func _reset_burst() -> void:
+		_particles_in_burst = randi_range(min_particles, max_particles)
 		_current_burst_index = 0
 
 	func process(current_time: float):
-		if _remaining_particles <= 0.0001:
+		if _remaining_cycles <= 0:
 			return 0
 
-		if current_time < time:
+		if current_time < _next_cycle_time:
 			return 0
 
+		# Check probability
+		if randf() > probability:
+			# Failed probability check, skip this cycle
+			_remaining_cycles -= 1
+			if _remaining_cycles > 0:
+				_next_cycle_time += particle_interval
+			return 0
+
+		# Emit all particles for this cycle at once
+		var to_emit = _particles_in_burst
 		var old_current_burst_index = _current_burst_index
-		if particle_interval <= 0.001:
-			# Emit all particles at once
-			var to_emit = _remaining_particles
-			_remaining_particles = 0
-			_current_burst_index = to_emit
-			return Vector3i(to_emit, old_current_burst_index, _particles_in_burst)
+		_current_burst_index = to_emit
 
-		# Check if it's time to emit next particle
-		if current_time >= time + _next_emission_time:
-			_next_emission_time += particle_interval
-			_remaining_particles -= 1
-			_current_burst_index += 1
-			return Vector3i(1, old_current_burst_index, _particles_in_burst)
+		# Move to next cycle
+		_remaining_cycles -= 1
+		if _remaining_cycles > 0:
+			_next_cycle_time += particle_interval
+			_reset_burst()
 
-		return 0
+		return Vector3i(to_emit, old_current_burst_index, _particles_in_burst)
 
 
 class UniParticlesRng extends RandomNumberGenerator:
@@ -231,13 +241,18 @@ var has_start_delay:bool:
 ## Enable debug logging
 @export var debugging: bool = false
 
-# !@ Emission Module! (emitting,max_particles,emission_type,rate_over_time,rate_over_distance,bursts)
-@export var enable_emission: Vector2i = Vector2i.ZERO
+# !@ Emission Module (max_particles,emission_type,rate_over_time,rate_over_distance,bursts)
+@export var enable_emission: Vector2i = Vector2i(1, 0)
 var emission_visible:bool:
 	get: return enable_emission.y == 1
 
 ## Enable/disable particle emission
-@export var emitting: bool = true
+var emitting: bool:
+	get: return enable_emission.x == 1
+	set(value):
+		enable_emission.x = 1 if value else 0
+		_core_params_dirty = true
+
 ## Maximum number of particles that can exist simultaneously
 @export var max_particles: int = 400:
 	set(value):
@@ -429,7 +444,7 @@ var is_type_box_or_edge:bool:
 ## Velocity curve over lifetime (multiplies base velocity)
 @export var velocity_over_lifetime: Curve
 ## Animate position offset over particle lifetime
-@export var offset_over_lifetime: Curve
+var offset_over_lifetime: Curve
 ## Velocity space (local or world)
 @export var velocity_in_world_space: bool = false
 
@@ -573,21 +588,31 @@ var simulation_time: float:
 		return _emission_time if _emission_time >= 0 else 0.0
 
 func create_burst_instance(index: int) -> BurstInstance:
-	var base_idx = index * 4
+	var base_idx = index * 9
 	var instance = BurstInstance.new()
 
 	# Add safety checks
-	if base_idx + 3 < bursts.size():
+	if base_idx + 8 < bursts.size():
 		instance.time = float(bursts[base_idx])
-		instance.min_particles = int(bursts[base_idx + 1])
-		instance.max_particles = int(bursts[base_idx + 2])
-		instance.particle_interval = float(bursts[base_idx + 3])
+		var count_mode = int(bursts[base_idx + 1])
+		instance.min_particles = int(bursts[base_idx + 2])
+		instance.max_particles = int(bursts[base_idx + 3]) if count_mode == 1 else instance.min_particles
+
+		var cycle_mode = int(bursts[base_idx + 4])
+		instance.min_cycles = int(bursts[base_idx + 5])
+		instance.max_cycles = int(bursts[base_idx + 6]) if cycle_mode == 1 else instance.min_cycles
+
+		instance.particle_interval = float(bursts[base_idx + 7])
+		instance.probability = float(bursts[base_idx + 8])
 	else:
 		# Default values if array access would be invalid
 		instance.time = 0.0
 		instance.min_particles = 10
 		instance.max_particles = 10
+		instance.min_cycles = 1
+		instance.max_cycles = 1
 		instance.particle_interval = 0.0
+		instance.probability = 1.0
 
 	return instance
 
@@ -1010,7 +1035,7 @@ func _process(delta: float) -> void:
 
 			# Reinitialize bursts from definitions
 			_active_bursts.clear()
-			var def_count = bursts.size() / 4
+			var def_count = bursts.size() / 9
 			for i in def_count:
 				var burst_instance = create_burst_instance(i)
 				burst_instance.initialize()
@@ -1098,7 +1123,7 @@ func _finish() -> void:
 
 	if loop:
 		play(false)
-	elif destroy_on_finish:
+	elif destroy_on_finish and not Engine.is_editor_hint():
 		queue_free()
 
 func _notification(what: int) -> void:
@@ -1150,17 +1175,11 @@ func _initialize_particle(particle: Particle) -> void:
 	# Initialize lifetime
 	particle.lifetime = start_lifetime
 
-	# Initialize starting position FIRST - in local space
-	particle.position = Vector3.ZERO
-	particle.last_position = Vector3.ZERO
-
 	# Initialize random tile if using texture sheet animation
 	if texture_sheet_enabled and use_random_starting_tile:
 		if tiles_mode == TextureSheetTiles.WHOLE_SHEET:
-			# For whole sheet, pick any tile
 			particle.tilesheet_starting_tile = randi() % (h_frames * v_frames)
 		else:
-			# For single row, pick any row
 			particle.tilesheet_starting_tile = randi() % v_frames
 	else:
 		particle.tilesheet_starting_tile = start_index_tile
@@ -1226,7 +1245,8 @@ func _initialize_particle(particle: Particle) -> void:
 			basis = basis.rotated(Vector3.FORWARD, deg_to_rad(rotation_offset.z))
 			basis = basis.rotated(Vector3.UP, deg_to_rad(rotation_offset.y))
 			basis = basis.rotated(Vector3.RIGHT, deg_to_rad(rotation_offset.x))
-		spawn_direction = basis * spawn_direction
+		particle.direction = basis * particle.direction
+		particle.position = basis * particle.position
 
 	#particle.direction = spawn_direction
 
@@ -1248,14 +1268,23 @@ func _initialize_particle(particle: Particle) -> void:
 	# Initialize color offset
 	particle.hue_offset = lerp(0.0, hue_variation, _rng.randf())
 
-	particle.last_position = particle.position
-
 	# Initialize velocities - transform to world space if needed
 	particle.base_velocity = particle.direction * particle.distance
 	if not direction_in_world_space:
 		# Transform the velocity to world space for consistent movement
 		particle.base_velocity = global_transform.basis * particle.base_velocity
-	particle.gravity_velocity = Vector3.ZERO
+
+	# When playing in reverse, start at the probable end position
+	if play_in_reverse:
+		# Calculate approximate final position based on initial velocity and gravity
+		var lifetime_seconds = particle.lifetime / playback_speed
+		# Move particle to estimated end position
+		particle.position += (particle.base_velocity * lifetime_seconds) + (0.5 * gravity * lifetime_seconds * lifetime_seconds)
+		# Reverse the velocity
+		particle.base_velocity = -particle.base_velocity
+
+	particle.gravity_velocity = Vector3.ZERO if not play_in_reverse else -gravity * particle.lifetime
+	particle.last_position = particle.position
 
 func _initialize_cone_particle(particle: Particle) -> void:
 	# Calculate arc position based on mode
@@ -1579,10 +1608,16 @@ func _get_update_functions() -> Array:
 		# Scale base velocity by curve
 		var current_velocity = p.base_velocity
 		if velocity_over_lifetime:
-			current_velocity *= velocity_over_lifetime.sample(t)
+			# When in reverse, we sample from the opposite end of the curve
+			var sample_time = (1.0 - t) if play_in_reverse else t
+			current_velocity *= velocity_over_lifetime.sample(sample_time)
 
-		# Update gravity velocity with lerp
-		p.gravity_velocity = p.gravity_velocity.lerp(gravity, delta * 0.2)
+		# Update gravity velocity
+		if play_in_reverse:
+			# In reverse, gravity works opposite
+			p.gravity_velocity = p.gravity_velocity.lerp(-gravity, delta * 0.2)
+		else:
+			p.gravity_velocity = p.gravity_velocity.lerp(gravity, delta * 0.2)
 
 		# Update position using both velocities
 		var movement = (current_velocity + p.gravity_velocity) * delta * playback_speed
@@ -1594,11 +1629,19 @@ func _get_update_functions() -> Array:
 		xform.origin = p.position
 
 		# Apply position offset if any
-		if position_offset:
+		if position_offset != Vector3.ZERO:
 			var offset_amount = Vector3.ONE
 			if offset_over_lifetime:
-				offset_amount = Vector3.ONE * offset_over_lifetime.sample(t)
-			xform.origin += position_offset * offset_amount
+				var sample_time = (1.0 - t) if play_in_reverse else t
+				offset_amount = Vector3.ONE * offset_over_lifetime.sample(sample_time)
+
+			var final_offset = position_offset * offset_amount
+			if not use_world_space:
+				# Transform offset to local space if needed
+				final_offset = global_transform.basis.inverse() * final_offset
+
+			xform.origin += final_offset
+
 		return xform
 	)
 
@@ -1627,7 +1670,7 @@ func play(_clear_on_play:bool = true) -> void:
 
 	# Initialize bursts from definitions
 	_active_bursts.clear()
-	var def_count = bursts.size() / 4
+	var def_count = bursts.size() / 9
 	for i in def_count:
 		var burst_instance = create_burst_instance(i)
 		burst_instance.initialize()

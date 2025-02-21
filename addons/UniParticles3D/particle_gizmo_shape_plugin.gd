@@ -24,8 +24,12 @@ func _redraw(gizmo):
 	# Calculate the transform for the gizmo based on offsets and space settings
 	var gizmo_transform := Transform3D()
 
-	# Apply position offset
-	gizmo_transform.origin = particle.position_offset
+	# Apply position offset - transform it the same way as in the particle system
+	var final_offset = particle.position_offset
+	if not particle.use_world_space:
+		# Transform offset to local space if needed - gizmo is already in local space
+		final_offset = particle.global_transform.basis.inverse() * final_offset
+	gizmo_transform.origin = final_offset
 
 	# Apply rotation offset
 	var basis = Basis()
@@ -62,9 +66,6 @@ func _transform_point(point: Vector3, transform: Transform3D, particle: UniParti
 	# First apply the shape transform
 	var result = transform * point
 
-	# Then add the position offset
-	result += particle.position_offset
-
 	if particle.direction_in_world_space:
 		# For world space, we need to remove the node's transform since gizmo is already in local space
 		result = particle.transform.basis.inverse() * result
@@ -80,7 +81,11 @@ func _draw_gizmo_cone(gizmo, particle: UniParticles3D, transform: Transform3D):
 	# Calculate inner radius based on radius_thickness
 	var inner_radius :float = radius * (1.0 - particle.radius_thickness)
 	# Inner top radius should converge to center when thickness is 1
-	var inner_top_radius :float = (inner_radius + (height * tan(angle)))  * (1.0 - particle.radius_thickness)
+	var inner_top_radius :float = (inner_radius + (height * tan(angle)))
+
+	inner_top_radius = lerp(inner_top_radius,  inner_top_radius * (1.0 - particle.radius_thickness), 1.0 - inverse_lerp(0.0,90.0,angle))
+
+	inner_top_radius = max(inner_top_radius,inner_radius)
 
 	# Draw both outer and inner cones
 	for cone_radius in [radius, inner_radius]:
