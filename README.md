@@ -2,7 +2,7 @@
 
 A simple yet powerful 3D Particle System for Godot 4.3+. UniParticles3D provides an intuitive, modular approach to creating particle effects with a familiar interface inspired by Unity's particle system.
 
-<img src="https://github.com/user-attachments/assets/82cb60fb-478c-4b7d-894e-0b79eac25136" width="50%"/>
+<video src='https://github.com/user-attachments/assets/b901ea3f-beb7-4ea0-9268-0acef65a6628' width=500/>
 
 ## Overview
 
@@ -19,7 +19,8 @@ Perfect for when you just want some simple effects with a quick setup.
 ## Features
 
 ### Core Particle System
-- **Emission Control**: Configure burst, distance-based and continuous emission with customizable rates and intervals
+- **Emission Control**: Configure[UniParticles3Dmov.webm](https://github.com/user-attachments/assets/5a809f82-5be4-4baa-9247-ed84b21e4d27)
+ burst, distance-based and continuous emission with customizable rates and intervals
 - **Shape-based Emission**: Multiple emission shapes with detailed controls
   - Cone (with base/volume emission)
   - Sphere
