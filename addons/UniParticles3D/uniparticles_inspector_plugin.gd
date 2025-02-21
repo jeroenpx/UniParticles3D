@@ -858,6 +858,9 @@ class ToggleGroupEditor extends EditorProperty:
 	var always_on:bool = false
 	var toggle_label: Label
 	var updating: bool = false
+
+	const draw_label_property:= &"draw_label"
+
 	var properties_container: ToggleGroupContainer
 	func _init(toggle_name: String):
 		# Create panel for visual grouping
@@ -866,17 +869,19 @@ class ToggleGroupEditor extends EditorProperty:
 		#theme = EditorInterface.get_editor_theme()
 		panel.ready.connect(panel_ready)
 		panel.gui_input.connect(_on_panel_input)
-		#panel->set_bg_color(prop_category_color);
-		#category_bg->set_border_color(prop_category_color);
-		#category_bg->set_content_margin_all(0);
-		#p_theme->set_stylebox("bg", "EditorInspectorCategory", category_bg);
 
-		#p_theme->set_constant("inspector_margin", EditorStringName(Editor), 12 * EDSCALE);
+		if draw_label_property in self:
+			set(draw_label_property,false)
+		else:
+			label = ""
 
-		draw_label = false
 		checkable = true
 		var hbox = HBoxContainer.new()
 		panel.add_child(hbox)
+
+		var spacer := Control.new()
+		spacer.custom_minimum_size.x = 8
+		hbox.add_child(spacer)
 
 		# Create checkbox
 		checkbox = CheckBox.new()
@@ -887,7 +892,9 @@ class ToggleGroupEditor extends EditorProperty:
 		toggle_label = Label.new()
 		toggle_label.text = toggle_name
 		hbox.add_child(toggle_label)
-		set_label_reference(toggle_label)
+
+		if has_method(&"set_label_reference"):
+			call(&"set_label_reference",toggle_label)
 
 		# Add panel as child of property editor
 		add_child(panel)
