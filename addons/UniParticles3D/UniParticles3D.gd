@@ -50,6 +50,7 @@ enum ArcMode {
 }
 
 class Particle extends RefCounted:
+	var functions: Array[Callable] = []
 	var dead: bool = false
 	var position: Vector3
 	var base_velocity: Vector3  # Initial velocity affected by curve
@@ -448,21 +449,19 @@ var offset_over_lifetime: Curve
 ## Velocity space (local or world)
 @export var velocity_in_world_space: bool = false
 
-# !@ Rotation Over Lifetime (velocity_rotation_degrees,velocity_rotation_randomness,rotation_over_lifetime,orbit_over_lifetime)
+# !@ Rotation Over Lifetime (rotation_over_lifetime,orbit_over_lifetime,orbit_around_axis)
 @export var enable_rotation_over_lifetime: Vector2i = Vector2i.ZERO
-
-## Rotation applied to velocity vector
-@export var velocity_rotation_degrees: Vector3
-## Random variation in velocity rotation
-@export_range(0.0, 1.0) var velocity_rotation_randomness: float = 0.0
 ## Animate rotation angle over particle lifetime
 @export var rotation_over_lifetime: Curve
 ## Animate velocity rotation over particle lifetime
 @export var orbit_over_lifetime: Curve
+@export var orbit_around_axis:Vector3 = Vector3.UP
 
 # !@ Color Over Lifetime (color_over_lifetime,hue_variation)
 @export var enable_color_over_lifetime: Vector2i = Vector2i.ZERO
-
+var has_color_over_lifetime:bool:
+	get:
+		return enable_color_over_lifetime.x == 1
 ## Gradient texture for coloring particles
 @export var color_over_lifetime: GradientTexture1D:
 	set(value):
@@ -471,14 +470,16 @@ var offset_over_lifetime: Curve
 ## Random hue variation
 @export_range(0.0, 1.0) var hue_variation: float = 0.0
 
-# !@ Texture Sheet Animation (texture_sheet_enabled,h_frames,v_frames,tiles_mode,use_random_starting_tile,start_index_tile,animation_cycles,frame_over_time)
-@export var enable_texture_sheet: Vector2i = Vector2i.ZERO
-
+# !@ Texture Sheet Animation (h_frames,v_frames,tiles_mode,use_random_starting_tile,start_index_tile,animation_cycles,frame_over_time)
 ## Enable texture sheet animation
-@export var texture_sheet_enabled: bool = false:
-	set(value):
-		texture_sheet_enabled = value
-		_update_instance_shader_parameters()
+@export var enable_texture_sheet: Vector2i = Vector2i.ZERO:
+	set(v):
+		enable_texture_sheet = v
+		_core_params_dirty = true
+
+var texture_sheet_enabled: bool:
+	get:
+		return enable_texture_sheet.x == 1
 ## Number of horizontal frames in the texture sheet
 @export var h_frames: int = 1:
 	set(value):
@@ -653,7 +654,7 @@ func _create_material() -> Material:
 	else:
 		if debugging: print("No albedo texture set")
 
-	if color_over_lifetime:
+	if has_color_over_lifetime and color_over_lifetime:
 		if debugging: print("Setting gradient texture: ", color_over_lifetime)
 		material.set_shader_parameter("gradient_texture", color_over_lifetime)
 	else:
@@ -788,7 +789,7 @@ func _update_particle(t: float, particle: Particle) -> void:
 	var xform = Transform3D()
 
 	# Apply all transform updates
-	for update_func in _get_update_functions():
+	for update_func in particle.functions:
 		xform = update_func.call(t, particle, xform)
 
 	# Calculate forward direction based on movement
@@ -902,7 +903,7 @@ func _update_particle(t: float, particle: Particle) -> void:
 		stretch = 1.0 + vel_stretch + length_stretch
 
 	# Set custom data (4 floats)
-	_buffer[idx + 16] = particle.angle if rotation_over_lifetime == null else particle.angle + rotation_over_lifetime.sample(t)  # rotation
+	_buffer[idx + 16] = particle.angle if enable_rotation_over_lifetime.x == 0 or rotation_over_lifetime == null else particle.angle + rotation_over_lifetime.sample(t)  # rotation
 	if width_over_lifetime:
 		_buffer[idx + 17] = particle.scale.x * width_over_lifetime.sample(t)
 	else:
@@ -1248,15 +1249,6 @@ func _initialize_particle(particle: Particle) -> void:
 		particle.direction = basis * particle.direction
 		particle.position = basis * particle.position
 
-	#particle.direction = spawn_direction
-
-	# Apply direction rotation
-	if velocity_rotation_randomness > 0.01:
-		var random_rotation = velocity_rotation_degrees * velocity_rotation_randomness * _rng.randf()
-		particle.direction = particle.direction.rotated(Vector3.RIGHT, deg_to_rad(random_rotation.x))
-		particle.direction = particle.direction.rotated(Vector3.UP, deg_to_rad(random_rotation.y))
-		particle.direction = particle.direction.rotated(Vector3.FORWARD, deg_to_rad(random_rotation.z))
-
 	# Initialize speed using the new start_speed property
 	particle.distance = start_speed
 
@@ -1266,7 +1258,8 @@ func _initialize_particle(particle: Particle) -> void:
 	# Initialize angle
 	particle.angle = deg_to_rad(start_rotation_degrees)
 	# Initialize color offset
-	particle.hue_offset = lerp(0.0, hue_variation, _rng.randf())
+	if has_color_over_lifetime:
+		particle.hue_offset = lerp(0.0, hue_variation, _rng.randf())
 
 	# Initialize velocities - transform to world space if needed
 	particle.base_velocity = particle.direction * particle.distance
@@ -1285,6 +1278,7 @@ func _initialize_particle(particle: Particle) -> void:
 
 	particle.gravity_velocity = Vector3.ZERO if not play_in_reverse else -gravity * particle.lifetime
 	particle.last_position = particle.position
+	particle.functions = _get_update_functions()
 
 func _initialize_cone_particle(particle: Particle) -> void:
 	# Calculate arc position based on mode
@@ -1577,73 +1571,106 @@ func _initialize_hemisphere_particle(particle: Particle) -> void:
 	)
 	particle.direction = particle.position.normalized()
 
-func _get_update_functions() -> Array:
-	var functions = []
+func _update_width_height_over_lifetime(t: float, p: Particle, xform: Transform3D):
+	var p_scale := p.scale
+	if width_over_lifetime:
+		p_scale.x = p.scale.x * width_over_lifetime.sample(t)
+	if height_over_lifetime:
+		p_scale.y = p.scale.y * height_over_lifetime.sample(t)
+	xform = xform.scaled(Vector3(p_scale.x, p_scale.y, 1.0))
+	return xform
+
+func _update_scale_over_lifetime(t: float, p: Particle, xform: Transform3D):
+	if size_over_lifetime == null:
+		return xform
+	var scale_factor = size_over_lifetime.sample(t)
+	return xform.scaled(Vector3(p.scale.x * scale_factor, p.scale.y * scale_factor, 1.0))
+
+func _update_scale(t: float, p: Particle, xform: Transform3D):
+	return xform.scaled(Vector3(p.scale.x, p.scale.y, 1.0))
+
+func _update_position_and_velocity(t: float, p: Particle, xform: Transform3D):
+	var delta = get_process_delta_time()
+
+	# Scale base velocity by curve
+	var current_velocity = p.base_velocity
+	if enable_velocity_over_lifetime.x == 1 and velocity_over_lifetime:
+		# When in reverse, we sample from the opposite end of the curve
+		var sample_time = (1.0 - t) if play_in_reverse else t
+		current_velocity *= velocity_over_lifetime.sample(sample_time)
+
+	# Update gravity velocity
+	if play_in_reverse:
+		# In reverse, gravity works opposite
+		p.gravity_velocity = p.gravity_velocity.lerp(-gravity, delta * 0.2)
+	else:
+		p.gravity_velocity = p.gravity_velocity.lerp(gravity, delta * 0.2)
+
+	# Update position using both velocities
+	var movement = (current_velocity + p.gravity_velocity) * delta * playback_speed
+	if not use_world_space:
+		# Transform movement back to local space
+		movement = global_transform.basis.inverse() * movement
+	p.position += movement
+
+	xform.origin = p.position
+
+	# Apply position offset if any
+	if position_offset != Vector3.ZERO:
+		var offset_amount = Vector3.ONE
+		if offset_over_lifetime:
+			var sample_time = (1.0 - t) if play_in_reverse else t
+			offset_amount = Vector3.ONE * offset_over_lifetime.sample(sample_time)
+
+		var final_offset = position_offset * offset_amount
+		if not use_world_space:
+			# Transform offset to local space if needed
+			final_offset = global_transform.basis.inverse() * final_offset
+
+		xform.origin += final_offset
+
+	return xform
+
+func _update_rotation_and_orbit(t: float, p: Particle, xform: Transform3D):
+	# Get orbit angle from curve
+	var orbit_angle = (orbit_over_lifetime.sample(t) * TAU * 0.01) if orbit_over_lifetime != null else 0.0 # Full rotation is TAU radians
+	# Get current position relative to center
+	var pos = p.position
+	if use_world_space:
+		# If in world space, transform position to local space for rotation
+		pos = global_transform.basis.inverse() * (pos - global_position)
+	# Create rotation around Y axis (or customize the axis as needed)
+	var rotation = Basis().rotated(orbit_around_axis, orbit_angle)
+	# Apply rotation to position
+	pos = rotation * pos
+	# Apply same rotation to velocity to maintain tangential movement
+	p.base_velocity = rotation * p.base_velocity
+	if use_world_space:
+		# Transform back to world space if needed
+		pos = global_transform.basis * pos + global_position
+	# Update position
+	p.position = pos
+	xform.origin = pos
+
+	return xform
+
+func _get_update_functions() -> Array[Callable]:
+	var functions :Array[Callable]= []
 
 	# Scale update functions
-	if width_over_lifetime != null or height_over_lifetime != null:
-		functions.append(func(t: float, p: Particle, xform: Transform3D):
-			var p_scale := p.scale
-			if width_over_lifetime:
-				p_scale.x = p.scale.x * width_over_lifetime.sample(t)
-			if height_over_lifetime:
-				p_scale.y = p.scale.y * height_over_lifetime.sample(t)
-			xform = xform.scaled(Vector3(p_scale.x, p_scale.y, 1.0))
-			return xform
-		)
-	elif size_over_lifetime:
-		functions.append(func(t: float, p: Particle, xform: Transform3D):
-			var scale_factor = size_over_lifetime.sample(t)
-			return xform.scaled(Vector3(p.scale.x * scale_factor, p.scale.y * scale_factor, 1.0))
-		)
+	if enable_size_over_lifetime.x == 1 and (width_over_lifetime != null or height_over_lifetime != null):
+		functions.append(_update_width_height_over_lifetime)
+	elif enable_size_over_lifetime.x == 1 and size_over_lifetime:
+		functions.append(_update_scale_over_lifetime)
 	else:
-		functions.append(func(t: float, p: Particle, xform: Transform3D):
-			return xform.scaled(Vector3(p.scale.x, p.scale.y, 1.0))
-		)
+		functions.append(_update_scale)
 
 	# Position update using velocity
-	functions.append(func(t: float, p: Particle, xform: Transform3D):
-		var delta = get_process_delta_time()
+	functions.append(_update_position_and_velocity)
 
-		# Scale base velocity by curve
-		var current_velocity = p.base_velocity
-		if velocity_over_lifetime:
-			# When in reverse, we sample from the opposite end of the curve
-			var sample_time = (1.0 - t) if play_in_reverse else t
-			current_velocity *= velocity_over_lifetime.sample(sample_time)
-
-		# Update gravity velocity
-		if play_in_reverse:
-			# In reverse, gravity works opposite
-			p.gravity_velocity = p.gravity_velocity.lerp(-gravity, delta * 0.2)
-		else:
-			p.gravity_velocity = p.gravity_velocity.lerp(gravity, delta * 0.2)
-
-		# Update position using both velocities
-		var movement = (current_velocity + p.gravity_velocity) * delta * playback_speed
-		if not use_world_space:
-			# Transform movement back to local space
-			movement = global_transform.basis.inverse() * movement
-		p.position += movement
-
-		xform.origin = p.position
-
-		# Apply position offset if any
-		if position_offset != Vector3.ZERO:
-			var offset_amount = Vector3.ONE
-			if offset_over_lifetime:
-				var sample_time = (1.0 - t) if play_in_reverse else t
-				offset_amount = Vector3.ONE * offset_over_lifetime.sample(sample_time)
-
-			var final_offset = position_offset * offset_amount
-			if not use_world_space:
-				# Transform offset to local space if needed
-				final_offset = global_transform.basis.inverse() * final_offset
-
-			xform.origin += final_offset
-
-		return xform
-	)
+	# Add orbit update before position update
+	if enable_rotation_over_lifetime.x == 1 and orbit_over_lifetime:
+		functions.append(_update_rotation_and_orbit)
 
 	return functions
 

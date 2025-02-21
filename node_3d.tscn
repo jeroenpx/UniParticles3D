@@ -1,4 +1,4 @@
-[gd_scene load_steps=11 format=3 uid="uid://bwv73s117kxfr"]
+[gd_scene load_steps=12 format=3 uid="uid://bwv73s117kxfr"]
 
 [ext_resource type="Script" uid="uid://drfig6iv8pgg6" path="res://node_3d.gd" id="1_a0tk4"]
 [ext_resource type="Script" uid="uid://c2ja1eugyxfeq" path="res://addons/UniParticles3D/UniParticles3D.gd" id="1_noarx"]
@@ -9,11 +9,15 @@ _data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(1e-05, 0.460668), 0.0, 0.0, 0, 0
 point_count = 4
 
 [sub_resource type="Gradient" id="Gradient_noarx"]
-offsets = PackedFloat32Array(0, 0.5573, 1)
-colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0.189953, 1, 1, 1, 0)
+offsets = PackedFloat32Array(0, 0.305556, 0.5573, 1)
+colors = PackedColorArray(1, 1, 1, 1, 1, 1, 1, 0.556863, 1, 1, 1, 0.189953, 1, 1, 1, 0)
 
 [sub_resource type="GradientTexture1D" id="GradientTexture1D_a0tk4"]
 gradient = SubResource("Gradient_noarx")
+
+[sub_resource type="Curve" id="Curve_jka67"]
+_data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(1, 1), 0.0, 0.0, 0, 0]
+point_count = 2
 
 [sub_resource type="Shader" id="Shader_noarx"]
 code = "// NOTE: Shader automatically converted from Godot Engine 4.4.beta's StandardMaterial3D.
@@ -130,20 +134,21 @@ duration = 3.0
 start_lifetime_random = Vector2(0.2, 2)
 start_speed_constant = 0.4
 start_speed_random = Vector2(0.1, 0.2)
+gravity = Vector3(0, 1, 0)
 enable_play_behavior = Vector2i(1, 1)
-enable_emission = Vector2i(1, 1)
 max_particles = 500
 rate_over_time = 20.0
 rate_over_distance = 0.0
 enable_shape = Vector2i(1, 1)
-radius = 0.57
-radius_thickness = 0.426
-angle = 22.1
+radius = 0.655
+radius_thickness = 0.546
+angle = 26.5
 arc_spread = 1.0
-velocity_rotation_degrees = Vector3(0, 1, 0)
-enable_color_over_lifetime = Vector2i(1, 1)
 color_over_lifetime = SubResource("GradientTexture1D_a0tk4")
 hue_variation = 0.14
+h_frames = 2
+v_frames = 2
+frame_over_time = SubResource("Curve_jka67")
 enable_rendering = Vector2i(1, 1)
 particle_texture = ExtResource("4_jka67")
 align_to_velocity = true

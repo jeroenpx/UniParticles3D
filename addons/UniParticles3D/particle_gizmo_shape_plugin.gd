@@ -397,9 +397,7 @@ func _draw_gizmo_hemisphere(gizmo, particle: UniParticles3D, transform: Transfor
 	gizmo.add_lines(lines, get_material("main", gizmo), false)
 
 func _get_gizmo_name():
-	return "ParticleGizmo"
+	return "UniParticles3DGizmo"
 
 func _get_handle_name(gizmo, handle_id, secondary):
-	return "ParticleGizmo"
-# You should implement the rest of handle-related callbacks
-# (_get_handle_name(), _get_handle_value(), _commit_handle(), ...).
+	return "UniParticles3DGizmo"
