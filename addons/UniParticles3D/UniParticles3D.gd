@@ -189,9 +189,11 @@ var start_size: Vector2:
 			0:
 				return start_size_constant
 			1:
+				if (start_size_random.x == start_size_random.y and start_size_random.z == start_size_random.w):
+					return Vector2.ONE * randf_range(start_size_random.x,start_size_random.z)
 				return Vector2(lerp(start_size_random.x,start_size_random.z,randf()), lerp(start_size_random.y, start_size_random.w, randf()))
 			_:
-				return Vector2(start_size_curve.evaluate(randf()),start_size_curve.evaluate(randf())) if start_size_curve != null else start_size_constant
+				return (Vector2.ONE * start_size_curve.evaluate(randf())) if start_size_curve != null else start_size_constant
 ## Initial size of particles when emitted
 # @@ Starting Size (start_size_constant,start_size_random,start_size_curve)
 @export var start_size_mode: int = 0  # 0=constant, 1=random, 2=curve
@@ -272,7 +274,7 @@ var emitting: bool:
 ## Array of burst configurations
 @export var bursts: Array = []
 
-# !@ Shape Module (shape_type,radius,angle,position_offset,direction_in_world_space,rotation_offset,box_extents,arc_degrees,arc_speed_mode,arc_mode,arc_spread,arc_speed_constant,arc_speed_curve,radius_thickness,shape_length,emit_from,random_direction,spherize_direction)
+# !@ Shape Module (shape_type,radius,angle,position_offset,direction_in_world_space,rotation_offset,box_extents,arc_degrees,arc_speed_mode,arc_mode,arc_spread,arc_speed_constant,arc_speed_curve,radius_thickness,shape_length,emit_from,random_direction,spherize_direction,invert_direction)
 @export var enable_shape: Vector2i = Vector2i.ZERO:
 	set(value):
 		enable_shape = value
@@ -416,6 +418,11 @@ var is_type_box_or_edge:bool:
 	set(value):
 		direction_in_world_space = value
 		_core_params_dirty = true
+## Invert resulting direction
+@export var invert_direction: bool = false:
+	set(value):
+		invert_direction = value
+		_core_params_dirty = true
 
 ## Position offset applied to particles
 @export var position_offset: Vector3:
@@ -457,7 +464,7 @@ var offset_over_lifetime: Curve
 @export var orbit_over_lifetime: Curve
 @export var orbit_around_axis:Vector3 = Vector3.UP
 
-# !@ Color Over Lifetime (color_over_lifetime,hue_variation)
+# !@ Color Over Lifetime (color_over_lifetime,starting_hue,hue_variation)
 @export var enable_color_over_lifetime: Vector2i = Vector2i.ZERO
 var has_color_over_lifetime:bool:
 	get:
@@ -467,6 +474,8 @@ var has_color_over_lifetime:bool:
 	set(value):
 		color_over_lifetime = value
 		_material_dirty = true
+## Random hue variation
+@export_range(0.0, 1.0) var starting_hue: float = 0.0
 ## Random hue variation
 @export_range(0.0, 1.0) var hue_variation: float = 0.0
 
@@ -534,7 +543,7 @@ var texture_sheet_enabled: bool:
 		blend_mode = value
 		_material_dirty = true
 ## Use override material
-@export var override_material: BaseMaterial3D = null:
+@export var override_material: Material = null:
 	set(value):
 		override_material = value
 		_material_dirty = true
@@ -555,12 +564,12 @@ var _arc_direction: int = 1  # Used for ping-pong mode
 static var _shared_quad_mesh: RID = RID()
 static var _mesh_arrays = null  # Keep mesh data reference
 var _multimesh: RID = RID()
-var _instance: RID = RID()  # Add this to store the instance RID
+var _instance: RID = RID()
 var shared_material: bool = true
 # Instance-specific material
 var _particles: Array[Particle] = []
 var _shared_material: Material
-var _material_dirty: bool = false  # New flag to track material changes
+var _material_dirty: bool = false
 var _rng: UniParticlesRng
 var _active: bool = false
 var _time: float = 0.0
@@ -570,7 +579,7 @@ var _emission_accumulator: Vector2 = Vector2.ZERO
 var _last_position: Vector3
 var _active_bursts: Array[BurstInstance] = []
 var _playing: bool = false
-var _emission_time: float = 0.0  # Track emission time separately from particle time
+var _emission_time: float = 0.0
 var _core_params_dirty: bool = false:
 	set(v):
 		if not done_ready:
@@ -588,11 +597,13 @@ var simulation_time: float:
 	get:
 		return _emission_time if _emission_time >= 0 else 0.0
 
+var _child_particles: Array[UniParticles3D] = []
+var _child_particles_cached: bool = false
+
 func create_burst_instance(index: int) -> BurstInstance:
 	var base_idx = index * 9
 	var instance = BurstInstance.new()
 
-	# Add safety checks
 	if base_idx + 8 < bursts.size():
 		instance.time = float(bursts[base_idx])
 		var count_mode = int(bursts[base_idx + 1])
@@ -925,30 +936,57 @@ func _emit_particle(_burst_spot:float = 0.0) -> void:
 	if not emitting:
 		return
 
-	# Add safety check at start of function
 	if max_particles <= 0:
 		return
 
 	var particle: Particle
 
 	if _particles.size() >= max_particles:
-		# Find the oldest particle to replace
-		var oldest_time = INF
-		var oldest_index = 0
-		for i in range(_particles.size()):
-			var p = _particles[i]
-			if not p.dead and p.creation_time < oldest_time:
-				oldest_time = p.creation_time
-				oldest_index = i
+		# Find multiple oldest particles when needed for bursts
+		var dead_count = 0
+		var oldest_particles = []
 
-		# Reuse the oldest particle's slot
-		particle = _particles[oldest_index]
-		# Mark it as dead first to ensure it's not visible during reinitialization
-		particle.dead = true
-		# Force update the particle's buffer entry to make it invisible
-		var idx = particle.index * 20
-		_buffer[idx + 15] = 0.0  # Set alpha to 0
-		RenderingServer.multimesh_set_buffer(_multimesh, _buffer)
+		# First count actually dead particles
+		for p in _particles:
+			if p.dead:
+				dead_count += 1
+				oldest_particles.append(p)
+
+		# If we don't have enough dead particles, find oldest living ones
+		if dead_count < max_particles:
+			# Sort particles by creation time
+			var living_particles = _particles.filter(func(p): return not p.dead)
+			living_particles.sort_custom(func(a, b): return a.creation_time < b.creation_time)
+
+			# Add oldest living particles to our reuse list
+			for p in living_particles:
+				if oldest_particles.size() < max_particles / 4: # Reuse up to 25% of particles at once
+					oldest_particles.append(p)
+				else:
+					break
+
+		# Reuse the first particle in our oldest list
+		if oldest_particles.size() > 0:
+			particle = oldest_particles[0]
+			# Mark it as dead first to ensure it's not visible during reinitialization
+			particle.dead = true
+			# Force update the particle's buffer entry to make it invisible
+			var idx = particle.index * 20
+			_buffer[idx + 15] = 0.0  # Set alpha to 0
+			RenderingServer.multimesh_set_buffer(_multimesh, _buffer)
+		else:
+			# Fallback to oldest particle if something went wrong
+			var oldest_time = INF
+			var oldest_index = 0
+			for i in range(_particles.size()):
+				var p = _particles[i]
+				if not p.dead and p.creation_time < oldest_time:
+					oldest_time = p.creation_time
+					oldest_index = i
+			particle = _particles[oldest_index]
+			particle.dead = true
+			var idx = particle.index * 20
+			_buffer[idx + 15] = 0.0
 
 		# Now initialize the particle
 		particle.creation_time = _time
@@ -966,6 +1004,14 @@ func _emit_particle(_burst_spot:float = 0.0) -> void:
 		_update_particle(0.0, particle)
 		_particles.append(particle)
 
+func update_instance_transform():
+	if use_world_space:
+		# In global mode, only use identity transform since particles are in world space
+		RenderingServer.instance_set_transform(_instance, Transform3D())
+	else:
+		# In local mode, use full global transform to account for parent transformations
+		RenderingServer.instance_set_transform(_instance, global_transform)
+
 func _process(delta: float) -> void:
 	if not _playing or paused:
 		return
@@ -975,12 +1021,7 @@ func _process(delta: float) -> void:
 
 	# Update instance transform if node has moved
 	if transform != _last_transform:
-		if use_world_space:
-			# In global mode, only use identity transform since particles are in world space
-			RenderingServer.instance_set_transform(_instance, Transform3D())
-		else:
-			# In local mode, use full node transform
-			RenderingServer.instance_set_transform(_instance, transform)
+		update_instance_transform()
 		_last_transform = transform
 
 	# Check if we need to recreate multimesh due to parameter changes
@@ -1160,6 +1201,10 @@ func _notification(what: int) -> void:
 				RenderingServer.free_rid(_shared_material.get_rid())
 				_shared_material = null
 
+		NOTIFICATION_CHILD_ORDER_CHANGED:
+			# Force recache of child particles on next play
+			_child_particles_cached = false
+
 func _update_shared_material() -> void:
 	if not _playing or not shared_material:
 		return
@@ -1172,6 +1217,9 @@ func _update_shared_material() -> void:
 func _initialize_particle(particle: Particle) -> void:
 	# Store the global position at creation time, but don't include it in initial position calculations
 	particle.creation_position = global_position if use_world_space else Vector3.ZERO
+
+	# When not in world space, we need to consider the parent's transform
+	var spawn_transform = transform if not use_world_space else Transform3D()
 
 	# Initialize lifetime
 	particle.lifetime = start_lifetime
@@ -1232,6 +1280,12 @@ func _initialize_particle(particle: Particle) -> void:
 		particle.direction = particle.direction.lerp(random_dir, random_direction).normalized()
 
 	spawn_direction = particle.direction
+		## Transform to world space only once at the end
+	#if not use_world_space:
+		## Transform both position and velocity to world space
+		#particle.position = spawn_transform.basis * particle.position + spawn_transform.origin
+		#particle.direction = spawn_transform.basis * particle.direction
+		#particle.base_velocity = spawn_transform.basis * particle.base_velocity
 
 	# Apply rotation offset to base direction before other modifications
 	if rotation_offset != Vector3.ZERO:
@@ -1246,7 +1300,7 @@ func _initialize_particle(particle: Particle) -> void:
 			basis = basis.rotated(Vector3.FORWARD, deg_to_rad(rotation_offset.z))
 			basis = basis.rotated(Vector3.UP, deg_to_rad(rotation_offset.y))
 			basis = basis.rotated(Vector3.RIGHT, deg_to_rad(rotation_offset.x))
-		particle.direction = basis * particle.direction
+		particle.direction = basis * (particle.direction * (1.0 if not invert_direction else -1.0))
 		particle.position = basis * particle.position
 
 	# Initialize speed using the new start_speed property
@@ -1259,7 +1313,7 @@ func _initialize_particle(particle: Particle) -> void:
 	particle.angle = deg_to_rad(start_rotation_degrees)
 	# Initialize color offset
 	if has_color_over_lifetime:
-		particle.hue_offset = lerp(0.0, hue_variation, _rng.randf())
+		particle.hue_offset = starting_hue + lerp(0.0, hue_variation, _rng.randf())
 
 	# Initialize velocities - transform to world space if needed
 	particle.base_velocity = particle.direction * particle.distance
@@ -1679,6 +1733,17 @@ func play(_clear_on_play:bool = true) -> void:
 		if debugging: print("Already playing")
 		return
 
+	update_instance_transform.call_deferred()
+	# Cache child particles on first play
+	_cache_child_particles()
+	# Play any child particles that aren't already playing
+	for child in _child_particles:
+		if not child._playing:
+			if debugging: print("Playing child particle system")
+			# Pass along the loop setting to children
+			child.loop = loop
+			child.play(_clear_on_play)
+
 	# Create multimesh if needed
 	_create_multimesh()
 
@@ -1728,6 +1793,11 @@ func clear(also_stop:bool = false) -> void:
 func stop(also_clear:bool = false) -> void:
 	_playing = false
 	_active_bursts.clear()
+
+	# Stop all child particles
+	for child in _child_particles:
+		child.stop(also_clear)
+
 	if also_clear:
 		clear()
 
@@ -1752,3 +1822,14 @@ func _get_alignment_basis(direction: Vector3) -> Basis:
 	basis.x = up.cross(direction).normalized()
 	basis.y = direction.cross(basis.x).normalized()
 	return basis
+
+func _cache_child_particles() -> void:
+	if _child_particles_cached:
+		return
+	_child_particles.clear()
+	for child in get_children():
+		if child is UniParticles3D:
+			_child_particles.append(child)
+
+	_child_particles_cached = true
+	if debugging: print("Cached ", _child_particles.size(), " child particle systems")
