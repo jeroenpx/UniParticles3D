@@ -532,7 +532,7 @@ var texture_sheet_enabled: bool:
 ## Curve controlling frame progression over particle lifetime
 @export var frame_over_time: Curve
 
-# !@ Rendering! (particle_texture,billboard_mode,velocity_stretch,length_stretch,align_to_velocity,blend_mode,override_material,custom_mesh,render_priority)
+# !@ Rendering! (particle_texture,tint_color,billboard_mode,velocity_stretch,length_stretch,align_to_velocity,blend_mode,override_material,custom_mesh,render_priority)
 @export var enable_rendering: Vector2i = Vector2i.ZERO
 
 ## Texture to use for each particle
@@ -540,6 +540,10 @@ var texture_sheet_enabled: bool:
 	set(value):
 		particle_texture = value
 		_material_dirty = true
+@export var tint_color:Color = Color.WHITE:
+	set(value):
+		tint_color = value
+		_update_instance_shader_parameters()
 ## Billboard rendering mode
 @export var billboard_mode: BillboardMode = BillboardMode.Standard:
 	set(value):
@@ -1839,6 +1843,8 @@ func _update_instance_shader_parameters() -> void:
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "particles_anim_enabled", texture_sheet_enabled)
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "billboard_mode", billboard_mode)
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "align_to_velocity", 1 if align_to_velocity else 0)
+	if tint_color != null:
+		RenderingServer.instance_geometry_set_shader_parameter(_instance, "tint_color", tint_color)
 
 
 # Helper function to get alignment basis from direction

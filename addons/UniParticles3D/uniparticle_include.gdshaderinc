@@ -5,7 +5,7 @@ instance uniform int billboard_mode = 0;
 instance uniform int align_to_velocity = 0;
 instance uniform int particles_anim_h_frames : hint_range(1, 128) = 1;
 instance uniform int particles_anim_v_frames : hint_range(1, 128) = 1;
-instance uniform bool particles_anim_loop = false;
+instance uniform vec4 tint_color:source_color = vec4(1.0);
 
 vec3 hue_change(vec3 input_color, float shift_hue) {
 	vec3 color_hsv;

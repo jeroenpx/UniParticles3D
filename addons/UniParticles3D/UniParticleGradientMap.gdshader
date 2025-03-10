@@ -18,6 +18,6 @@ void fragment() {
 	float value = (input_color.r + input_color.g + input_color.b) / 3.0;
 	vec4 output_color = texture(gradient_texture, vec2(COLOR.g, 0.1)) * vec4(input_color.rgb,1.0);
 
-	ALBEDO = hue_change(output_color.rgb,COLOR.r);
-	ALPHA = min(min(input_color.a * output_color.a, value),output_color.a);
+	ALBEDO = hue_change(output_color.rgb * tint_color.rgb, COLOR.r);
+	ALPHA = min(min(min(input_color.a * output_color.a, value),output_color.a),tint_color.a);
 }
