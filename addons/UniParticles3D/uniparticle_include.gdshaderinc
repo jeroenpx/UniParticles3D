@@ -29,7 +29,7 @@ vec3 hue_change(vec3 input_color, float shift_hue) {
 	return color_rgb.rgb;
 }
 
-mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX, vec4 _COLOR, vec4 instance_custom, vec2 _UV, vec2 particles_anim, out vec2 rotated_uv) {
+mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX, vec4 _COLOR, vec4 instance_custom, vec2 _UV, vec2 particles_anim, out vec2 final_uv) {
 	// Get the direction of motion from the model matrix's forward vector (Z axis)
 	vec3 velocity_dir = normalize(_MODEL_MATRIX[2].xyz);
 	// Get custom scales and parameters
@@ -47,29 +47,37 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 	// Setup billboard orientation vectors
 	vec3 billboard_right = normalize(_INV_VIEW_MATRIX[0].xyz);
 	vec3 billboard_up = normalize(_INV_VIEW_MATRIX[1].xyz);
+	
+	// Keep track of the rotation we need to apply
+	float total_angle = angle;
+	
 	if (billboard_mode == 2) {
 		// NO BILLBOARD WANTED
-		vec2 uv_center = vec2(0.5, 0.5);
-		vec2 uv_offset = _UV - uv_center;
+		// Instead of rotating UVs, apply rotation to the model matrix
 		float cos_a = cos(angle);
 		float sin_a = sin(angle);
-		rotated_uv = vec2(
-			uv_offset.x * cos_a - uv_offset.y * sin_a,
-			uv_offset.x * sin_a + uv_offset.y * cos_a
-		) + uv_center;
+		
+		// Create rotation matrix around Z axis
+		mat4 rot_mat = mat4(
+			vec4(cos_a, -sin_a, 0.0, 0.0),
+			vec4(sin_a, cos_a, 0.0, 0.0),
+			vec4(0.0, 0.0, 1.0, 0.0),
+			vec4(0.0, 0.0, 0.0, 1.0)
+		);
         
-		// Use the original model matrix but apply custom scaling
+		// Use the original model matrix but apply custom scaling and rotation
 		mat4 scale_mat = mat4(
 			vec4(length(_MODEL_MATRIX[0].xyz) * scale_x, 0.0, 0.0, 0.0),
 			vec4(0.0, length(_MODEL_MATRIX[1].xyz) * scale_y, 0.0, 0.0),
 			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0),
 			vec4(0.0, 0.0, 0.0, 1.0));
             
-		return_modelview_matrix = _VIEW_MATRIX * _MODEL_MATRIX * scale_mat;
+		return_modelview_matrix = _VIEW_MATRIX * _MODEL_MATRIX * rot_mat * scale_mat;
 	} else if (billboard_mode == 0) { // STANDARD BILLBOARDING
+		float vel_angle = 0.0;
 		if (align_to_velocity == 1){
 			// Calculate rotation to align with velocity
-			float vel_angle = atan(dot(velocity_dir, billboard_right), dot(velocity_dir, billboard_up));
+			vel_angle = atan(dot(velocity_dir, billboard_right), dot(velocity_dir, billboard_up));
 			// Rotate the billboard vectors to align with velocity
 			vec3 new_up = (billboard_up * cos(vel_angle) + billboard_right * sin(vel_angle));
 			vec3 new_right = (-billboard_up * sin(vel_angle) + billboard_right * cos(vel_angle));
@@ -80,15 +88,15 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 			billboard_right *= scale_x;
 			billboard_up *= scale_y;
 		}
-		// Apply additional rotation if needed
-		vec2 uv_center = vec2(0.5, 0.5);
-		vec2 uv_offset = _UV - uv_center;
+		
+		// Apply rotation to the billboard
 		float cos_a = cos(angle);
 		float sin_a = sin(angle);
-		rotated_uv = vec2(
-			uv_offset.x * cos_a - uv_offset.y * sin_a,
-			uv_offset.x * sin_a + uv_offset.y * cos_a
-		) + uv_center;
+		vec3 rotated_right = billboard_right * cos_a - billboard_up * sin_a;
+		vec3 rotated_up = billboard_right * sin_a + billboard_up * cos_a;
+		billboard_right = rotated_right;
+		billboard_up = rotated_up;
+		
 		// Simple billboard matrix
 		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
 		// Preserve original scale
@@ -109,15 +117,15 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		// Apply custom scales
 		right *= scale_x;
 		world_up *= scale_y;
-		// Calculate rotated _UV coordinates
-		vec2 uv_center = vec2(0.5, 0.5);
-		vec2 uv_offset = _UV - uv_center;
+		
+		// Apply rotation to the billboard
 		float cos_a = cos(angle);
 		float sin_a = sin(angle);
-		rotated_uv = vec2(
-			uv_offset.x * cos_a - uv_offset.y * sin_a,
-			uv_offset.x * sin_a + uv_offset.y * cos_a
-		) + uv_center;
+		vec3 rotated_right = right * cos_a - world_up * sin_a;
+		vec3 rotated_up = right * sin_a + world_up * cos_a;
+		right = rotated_right;
+		world_up = rotated_up;
+		
 		// Construct vertical billboard matrix
 		mat4 mat_world = mat4(
 			vec4(right, 0.0),
@@ -158,15 +166,15 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		float abs_stretch = (effective_stretch);
 		billboard_up = new_up * abs_stretch;
 		billboard_right = new_right * (1.0 / sqrt(abs_stretch));
-		// Calculate rotated UV coordinates
-		vec2 uv_center = vec2(0.5, 0.5);
-		vec2 uv_offset = _UV - uv_center;
-		float cos_a = cos(angle + (align_to_velocity == 0 ? vel_angle : 0.0));
-		float sin_a = sin(angle + (align_to_velocity == 0 ? vel_angle : 0.0));
-		rotated_uv = vec2(
-			uv_offset.x * cos_a - uv_offset.y * sin_a,
-			uv_offset.x * sin_a + uv_offset.y * cos_a
-		) + uv_center;
+		
+		// Apply particle rotation
+		float additional_angle = angle + (align_to_velocity == 0 ? vel_angle : 0.0);
+		float cos_a = cos(additional_angle);
+		float sin_a = sin(additional_angle);
+		vec3 rotated_right = billboard_right * cos_a - billboard_up * sin_a;
+		vec3 rotated_up = billboard_right * sin_a + billboard_up * cos_a;
+		billboard_right = rotated_right;
+		billboard_up = rotated_up;
 		
 		// Construct final billboard matrix
 		mat4 mat_world = mat4(
@@ -208,12 +216,16 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 
 		// Calculate angle between up vector and stretch direction
 		float vel_angle = atan(dot(stretch_dir, billboard_right), dot(stretch_dir, billboard_up));
-		// Calculate rotated _UV coordinates
-		vec2 uv_center = vec2(0.5, 0.5);
-		vec2 uv_offset = _UV - uv_center;
-		float cos_a = cos(angle + (align_to_velocity == 1 ? vel_angle : 0.0));
-		float sin_a = sin(angle + (align_to_velocity == 1 ? vel_angle : 0.0));
-		rotated_uv = vec2(uv_offset.x * cos_a - uv_offset.y * sin_a, uv_offset.x * sin_a + uv_offset.y * cos_a) + uv_center;
+		
+		// Apply particle rotation
+		float additional_angle = angle + (align_to_velocity == 1 ? vel_angle : 0.0);
+		float cos_a = cos(additional_angle);
+		float sin_a = sin(additional_angle);
+		vec3 rotated_right = billboard_right * cos_a - billboard_up * sin_a;
+		vec3 rotated_up = billboard_right * sin_a + billboard_up * cos_a;
+		billboard_right = rotated_right;
+		billboard_up = rotated_up;
+		
 		// Construct final billboard matrix
 		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
 
@@ -223,6 +235,9 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 
 		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
 	}
+	
+	// Now we use unmodified UVs for animation 
+	final_uv = _UV;
 	
 	// Animation frames handling
 	if  (_COLOR.a > -0.5) {
@@ -239,9 +254,9 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 			// Calculate frame within row
 			float particle_frame = floor(frame_progress * h_frames);
 
-			// Apply _UV transformation
-			rotated_uv /= vec2(h_frames, v_frames);
-			rotated_uv += vec2(
+			// Apply UV transformation
+			final_uv /= vec2(h_frames, v_frames);
+			final_uv += vec2(
 				mod(particle_frame, h_frames) / h_frames,
 				row / v_frames
 			);
@@ -250,9 +265,9 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 			float frame = _COLOR.a * particle_total_frames;
 			float current_frame = floor(frame);
 
-			// Apply _UV transformation
-			rotated_uv /= vec2(h_frames, v_frames);
-			rotated_uv += vec2(
+			// Apply UV transformation
+			final_uv /= vec2(h_frames, v_frames);
+			final_uv += vec2(
 				mod(current_frame, h_frames) / h_frames,
 				floor(current_frame / h_frames) / v_frames
 			);
