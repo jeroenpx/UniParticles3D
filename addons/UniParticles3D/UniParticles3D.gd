@@ -19,8 +19,11 @@ enum BlendMode {
 }
 
 enum BillboardMode {
-	Standard,
-	Stretched
+	None = 2,
+	Standard = 0,
+	Vertical = 3,
+	Stretched = 1,
+	StretchedVertical = 4,
 }
 
 enum TextureSheetTiles {
@@ -522,7 +525,7 @@ var texture_sheet_enabled: bool:
 ## Curve controlling frame progression over particle lifetime
 @export var frame_over_time: Curve
 
-# !@ Rendering! (particle_texture,billboard_mode,velocity_stretch,length_stretch,align_to_velocity,blend_mode,override_material,custom_mesh)
+# !@ Rendering! (particle_texture,billboard_mode,velocity_stretch,length_stretch,align_to_velocity,blend_mode,override_material,custom_mesh,render_priority)
 @export var enable_rendering: Vector2i = Vector2i.ZERO
 
 ## Texture to use for each particle
@@ -531,16 +534,27 @@ var texture_sheet_enabled: bool:
 		particle_texture = value
 		_material_dirty = true
 ## Billboard rendering mode
-@export var billboard_mode: BillboardMode = BillboardMode.Standard
+@export var billboard_mode: BillboardMode = BillboardMode.Standard:
+	set(value):
+		billboard_mode = value
+		_update_instance_shader_parameters()
 ## How much to stretch based on velocity (0 = no stretch)
 @export_range(-10.0, 10.0) var velocity_stretch: float = 0.0
 ## How much to stretch based on length/direction (0 = no stretch)
 @export_range(-10.0, 10.0) var length_stretch: float = 0.0
-@export var align_to_velocity:bool = false
+@export var align_to_velocity:bool = false:
+	set(value):
+		align_to_velocity = value
+		_update_instance_shader_parameters()
 ## How particles blend with the background
 @export var blend_mode: BlendMode = BlendMode.Mix:
 	set(value):
 		blend_mode = value
+		_material_dirty = true
+## Render order priority number.
+@export var render_priority: int = 0:
+	set(value):
+		render_priority = value if value is int else 0
 		_material_dirty = true
 ## Use override material
 @export var override_material: Material = null:
@@ -658,7 +672,8 @@ func _create_material() -> Material:
 			material.shader = SHADER_MULT
 		BlendMode.PremultipliedAlpha:
 			material.shader = SHADER_PREMULT_ALPHA
-
+	if render_priority is int:
+		material.render_priority = render_priority
 	if particle_texture:
 		if debugging: print("Setting albedo texture: ", particle_texture)
 		material.set_shader_parameter("albedo_texture", particle_texture)
@@ -752,7 +767,7 @@ func _create_multimesh() -> void:
 		RenderingServer.instance_set_transform(_instance, Transform3D())
 	else:
 		RenderingServer.instance_set_transform(_instance, transform)
-	_last_transform = transform
+	_last_transform = global_transform
 
 	# Set initial shader parameters
 	_update_instance_shader_parameters()
@@ -806,7 +821,7 @@ func _update_particle(t: float, particle: Particle) -> void:
 	# Calculate forward direction based on movement
 	var forward = particle.direction
 	var velocity_combined:Vector3 = (particle.base_velocity + particle.gravity_velocity)
-	if ((billboard_mode == BillboardMode.Stretched and abs(velocity_stretch) > 0.001) or align_to_velocity) and velocity_combined.length() > 0.001:
+	if (((billboard_mode == BillboardMode.Stretched or (billboard_mode == BillboardMode.StretchedVertical)) and abs(velocity_stretch) > 0.001) or align_to_velocity) and velocity_combined.length() > 0.001:
 		# Always work in local space for consistent billboard orientation
 		var local_velocity = velocity_combined
 		# if use_world_space:
@@ -869,9 +884,9 @@ func _update_particle(t: float, particle: Particle) -> void:
 
 	_buffer[idx + 12] = hue_offset  # r
 	_buffer[idx + 13] = clamp(t,0.0,1.0)  # g
-	_buffer[idx + 14] = 0.5 if billboard_mode == BillboardMode.Stretched else 1.0
-	if align_to_velocity:
-		_buffer[idx + 14] *= -1
+	_buffer[idx + 14] = 1.0# if billboard_mode == BillboardMode.None else (0.5 if billboard_mode == BillboardMode.Stretched else 1.0)
+	#if align_to_velocity:
+	#	_buffer[idx + 14] *= -1
 	  # b
 	_buffer[idx + 15] = 1.0  # a
 
@@ -907,7 +922,7 @@ func _update_particle(t: float, particle: Particle) -> void:
 	# Calculate stretch factors
 	var stretch = 1.0
 
-	if billboard_mode == BillboardMode.Stretched:
+	if billboard_mode == BillboardMode.Stretched or billboard_mode == BillboardMode.StretchedVertical:
 		var vel_stretch:float = 0.0
 		if abs(velocity_stretch) > 0.001 and velocity_combined.length() > 0.001:
 			vel_stretch = (velocity_combined.length() * velocity_stretch)
@@ -1011,6 +1026,7 @@ func update_instance_transform():
 	else:
 		# In local mode, use full global transform to account for parent transformations
 		RenderingServer.instance_set_transform(_instance, global_transform)
+	_last_transform = global_transform
 
 func _process(delta: float) -> void:
 	if not _playing or paused:
@@ -1020,9 +1036,8 @@ func _process(delta: float) -> void:
 	delta *= playback_speed
 
 	# Update instance transform if node has moved
-	if transform != _last_transform:
+	if global_transform != _last_transform:
 		update_instance_transform()
-		_last_transform = transform
 
 	# Check if we need to recreate multimesh due to parameter changes
 	if _core_params_dirty:
@@ -1204,6 +1219,10 @@ func _notification(what: int) -> void:
 		NOTIFICATION_CHILD_ORDER_CHANGED:
 			# Force recache of child particles on next play
 			_child_particles_cached = false
+
+		NOTIFICATION_TRANSFORM_CHANGED:
+			if _instance != RID() and not use_world_space:
+				update_instance_transform()
 
 func _update_shared_material() -> void:
 	if not _playing or not shared_material:
@@ -1809,6 +1828,9 @@ func _update_instance_shader_parameters() -> void:
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "particles_anim_v_frames", v_frames)
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "particles_anim_tiles_mode", tiles_mode)
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "particles_anim_enabled", texture_sheet_enabled)
+	RenderingServer.instance_geometry_set_shader_parameter(_instance, "billboard_mode", billboard_mode)
+	RenderingServer.instance_geometry_set_shader_parameter(_instance, "align_to_velocity", align_to_velocity)
+
 
 # Helper function to get alignment basis from direction
 func _get_alignment_basis(direction: Vector3) -> Basis:
