@@ -139,7 +139,7 @@ class UniParticlesRng extends RandomNumberGenerator:
 
 #region Exports
 @export_group("")
-# !@ Main! (duration,start_lifetime_mode,start_lifetime_constant,start_lifetime_random,start_lifetime_curve,start_speed_mode,start_speed_constant,start_speed_random,gravity,start_size_mode,start_size_constant,start_size_random,start_size_curve,start_rotation_degrees_mode,start_rotation_degrees_constant,start_rotation_degrees_random,start_rotation_degrees_curve,use_world_space)
+# !@ Main! (duration,start_lifetime_mode,start_lifetime_constant,start_lifetime_random,start_lifetime_curve,start_speed_mode,start_speed_constant,start_speed_random,gravity,start_size_mode,start_size_constant,start_size_random,start_size_curve,start_rotation_degrees_mode,start_rotation_degrees_constant,start_rotation_degrees_random,start_rotation_degrees_curve,use_world_space,start_size_squarerandom)
 @export var enable_main_module: Vector2i = Vector2i.ONE
 
 ## Duration of the particle system in seconds (0 = infinite)
@@ -196,16 +196,16 @@ var start_size: Vector2:
 					return Vector2.ONE * randf_range(start_size_random.x,start_size_random.z)
 				return Vector2(lerp(start_size_random.x,start_size_random.z,randf()), lerp(start_size_random.y, start_size_random.w, randf()))
 			3:
-				return Vector2.ONE * randf_range(start_size_random_square.x,start_size_random_square.y)
+				return Vector2.ONE * randf_range(start_size_squarerandom.x,start_size_squarerandom.y)
 			_:
 				return (Vector2.ONE * start_size_curve.evaluate(randf())) if start_size_curve != null else start_size_constant
 ## Initial size of particles when emitted
-# @@ Starting Size (start_size_constant,start_size_random,start_size_curve,start_size_random_square)
-@export var start_size_mode: int = 0  # 0=constant, 1=random, 2=curve, 3=randomsquare
+# @@ Starting Size (start_size_constant,start_size_random,start_size_curve,start_size_squarerandom)
+@export var start_size_mode: int = 0  # 0=constant, 1=random, 2=curve, 3=squarerandom
 @export var start_size_constant: Vector2 = Vector2(0.15,0.15)
-@export var start_size_random_square: Vector2 = Vector2(0.15,0.3)
 @export var start_size_random: Vector4 = Vector4(0.5, 0.5, 1.5, 1.5)
 @export var start_size_curve: Curve = null
+@export var start_size_squarerandom: Vector2 = Vector2(0.15,0.3)
 
 var start_rotation_degrees: float:
 	get:
