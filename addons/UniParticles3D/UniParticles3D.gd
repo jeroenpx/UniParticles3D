@@ -195,13 +195,16 @@ var start_size: Vector2:
 				if (start_size_random.x == start_size_random.y and start_size_random.z == start_size_random.w):
 					return Vector2.ONE * randf_range(start_size_random.x,start_size_random.z)
 				return Vector2(lerp(start_size_random.x,start_size_random.z,randf()), lerp(start_size_random.y, start_size_random.w, randf()))
+			3:
+				return Vector2.ONE * randf_range(start_size_random_square.x,start_size_random_square.y)
 			_:
 				return (Vector2.ONE * start_size_curve.evaluate(randf())) if start_size_curve != null else start_size_constant
 ## Initial size of particles when emitted
-# @@ Starting Size (start_size_constant,start_size_random,start_size_curve)
-@export var start_size_mode: int = 0  # 0=constant, 1=random, 2=curve
+# @@ Starting Size (start_size_constant,start_size_random,start_size_curve,start_size_random_square)
+@export var start_size_mode: int = 0  # 0=constant, 1=random, 2=curve, 3=randomsquare
 @export var start_size_constant: Vector2 = Vector2(0.15,0.15)
-@export var start_size_random: Vector4 = Vector4(0.5, 1.5, 0.5, 1.5)
+@export var start_size_random_square: Vector2 = Vector2(0.15,0.3)
+@export var start_size_random: Vector4 = Vector4(0.5, 0.5, 1.5, 1.5)
 @export var start_size_curve: Curve = null
 
 var start_rotation_degrees: float:
@@ -282,6 +285,10 @@ var emitting: bool:
 	set(value):
 		enable_shape = value
 		_core_params_dirty = true
+
+var is_type_billboard_stretched:bool:
+	get:
+		return billboard_mode == BillboardMode.Stretched or billboard_mode == BillboardMode.StretchedVertical
 
 var is_type_cone:bool:
 	get:
@@ -539,8 +546,10 @@ var texture_sheet_enabled: bool:
 		billboard_mode = value
 		_update_instance_shader_parameters()
 ## How much to stretch based on velocity (0 = no stretch)
+# @only_show_if(is_type_billboard_stretched)
 @export_range(-10.0, 10.0) var velocity_stretch: float = 0.0
 ## How much to stretch based on length/direction (0 = no stretch)
+# @only_show_if(is_type_billboard_stretched)
 @export_range(-10.0, 10.0) var length_stretch: float = 0.0
 @export var align_to_velocity:bool = false:
 	set(value):

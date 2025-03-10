@@ -1,0 +1,234 @@
+uniform sampler2D albedo_texture : source_color, repeat_disable;
+uniform sampler2D gradient_texture : source_color, hint_default_white,repeat_disable;
+
+instance uniform int billboard_mode = 0;
+instance uniform int align_to_velocity = 0;
+instance uniform int particles_anim_h_frames : hint_range(1, 128) = 1;
+instance uniform int particles_anim_v_frames : hint_range(1, 128) = 1;
+instance uniform bool particles_anim_loop = false;
+
+vec3 hue_change(vec3 input_color, float shift_hue) {
+	vec3 color_hsv;
+	{
+		vec3 c = input_color;
+		vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+		vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
+		vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
+		float d = q.x - min(q.w, q.y);
+		float e = 1.0e-10;
+		color_hsv=vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+	}
+	color_hsv.x = mod((color_hsv.x + shift_hue), 1.0f);
+	vec3 color_rgb;
+	{
+		vec3 c = color_hsv;
+		vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+		vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+		color_rgb=c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+	}
+	return color_rgb.rgb;
+}
+
+mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX, vec4 _COLOR, vec4 instance_custom, vec2 _UV, vec2 particles_anim, out vec2 rotated_uv) {
+	// Get the direction of motion from the model matrix's forward vector (Z axis)
+	vec3 velocity_dir = normalize(_MODEL_MATRIX[2].xyz);
+	// Get custom scales and parameters
+	float scale_x = instance_custom.y;
+	float scale_y = instance_custom.z;
+	float angle = instance_custom.x;
+	float stretch = instance_custom.w;
+	mat4 return_modelview_matrix;
+	// Get view direction (from object to camera)
+	vec3 view_dir = normalize(_INV_VIEW_MATRIX[2].xyz);
+
+	// Calculate how parallel the view is to the velocity
+	float parallel_factor = abs(dot(velocity_dir, view_dir));
+
+	// Setup billboard orientation vectors
+	vec3 billboard_right = normalize(_INV_VIEW_MATRIX[0].xyz);
+	vec3 billboard_up = normalize(_INV_VIEW_MATRIX[1].xyz);
+	if (billboard_mode == 2) {
+		// NO BILLBOARD WANTED
+		vec2 uv_center = vec2(0.5, 0.5);
+		vec2 uv_offset = _UV - uv_center;
+		float cos_a = cos(angle);
+		float sin_a = sin(angle);
+		rotated_uv = vec2(
+			uv_offset.x * cos_a - uv_offset.y * sin_a,
+			uv_offset.x * sin_a + uv_offset.y * cos_a
+		) + uv_center;
+        
+		// Use the original model matrix but apply custom scaling
+		mat4 scale_mat = mat4(
+			vec4(length(_MODEL_MATRIX[0].xyz) * scale_x, 0.0, 0.0, 0.0),
+			vec4(0.0, length(_MODEL_MATRIX[1].xyz) * scale_y, 0.0, 0.0),
+			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0),
+			vec4(0.0, 0.0, 0.0, 1.0));
+            
+		return_modelview_matrix = _VIEW_MATRIX * _MODEL_MATRIX * scale_mat;
+	} else if (billboard_mode == 0) { // STANDARD BILLBOARDING
+		billboard_right *= scale_x;
+		billboard_up *= scale_y;
+		// Apply additional rotation if needed
+		vec2 uv_center = vec2(0.5, 0.5);
+		vec2 uv_offset = _UV - uv_center;
+		float cos_a = cos(angle);
+		float sin_a = sin(angle);
+		rotated_uv = vec2(
+			uv_offset.x * cos_a - uv_offset.y * sin_a,
+			uv_offset.x * sin_a + uv_offset.y * cos_a
+		) + uv_center;
+		// Simple billboard matrix
+		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
+		// Preserve original scale
+		mat4 scale_mat = mat4(vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0), vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
+			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
+	} else if (billboard_mode == 3) { 
+		// VERTICAL BILLBOARDING - Y-axis constrained
+		// Get world up vector (assuming Y is up)
+		vec3 world_up = vec3(0.0, 1.0, 0.0);
+		// Get direction to camera (in world space)
+		vec3 to_camera = normalize(_INV_VIEW_MATRIX[3].xyz - _MODEL_MATRIX[3].xyz);
+		// Project camera direction onto the XZ plane
+		to_camera.y = 0.0;
+		to_camera = normalize(to_camera);
+		// Construct right vector perpendicular to world up and to_camera
+		vec3 right = normalize(cross(world_up, to_camera));
+		// Apply custom scales
+		right *= scale_x;
+		world_up *= scale_y;
+		// Calculate rotated _UV coordinates
+		vec2 uv_center = vec2(0.5, 0.5);
+		vec2 uv_offset = _UV - uv_center;
+		float cos_a = cos(angle);
+		float sin_a = sin(angle);
+		rotated_uv = vec2(
+			uv_offset.x * cos_a - uv_offset.y * sin_a,
+			uv_offset.x * sin_a + uv_offset.y * cos_a
+		) + uv_center;
+		// Construct vertical billboard matrix
+		mat4 mat_world = mat4(
+			vec4(right, 0.0),
+			vec4(world_up, 0.0),
+			vec4(to_camera, 0.0),
+			_MODEL_MATRIX[3]);
+		// Preserve original scale
+		mat4 scale_mat = mat4(
+			vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0),
+			vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
+			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0),
+			vec4(0.0, 0.0, 0.0, 1.0));
+		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
+	} else if (billboard_mode == 1) { // STRETCHED BILLBOARDING
+		// Project velocity onto view plane
+		vec3 projected_vel = velocity_dir - view_dir * dot(velocity_dir, view_dir);
+		// Improved stretch factor calculation
+		float view_aligned_factor = smoothstep(0.0, 0.3, length(projected_vel));
+		float effective_stretch = mix(stretch, stretch * 0.25, parallel_factor * parallel_factor);
+		effective_stretch = mix(effective_stretch, stretch, view_aligned_factor);
+		// Calculate stretch direction
+		vec3 stretch_dir = normalize(mix(velocity_dir, projected_vel, view_aligned_factor));
+		
+		// Calculate angle between up vector and stretch direction
+		float vel_angle = atan(dot(stretch_dir, billboard_right), dot(stretch_dir, billboard_up));
+		if (align_to_velocity == 1) {
+			// Rotate the billboard vectors to align with velocity and apply scaling
+			billboard_right = (-billboard_up * sin(vel_angle) + billboard_right * cos(vel_angle)) * scale_x;
+			billboard_up = (billboard_up * cos(vel_angle) + billboard_right * sin(vel_angle)) * scale_y;
+		} else {
+		// Apply custom scales to the billboard vectors
+		billboard_right *= scale_x;
+		billboard_up *= scale_y;
+		}
+		// Rotate and stretch the vectors
+		vec3 new_up = (billboard_up * cos(vel_angle) + billboard_right * sin(vel_angle));
+		vec3 new_right = (-billboard_up * sin(vel_angle) + billboard_right * cos(vel_angle));
+		float abs_stretch = (effective_stretch);
+		billboard_up = new_up * abs_stretch;
+		billboard_right = new_right * (1.0 / sqrt(abs_stretch));
+		// Calculate rotated _UV coordinates
+		vec2 uv_center = vec2(0.5, 0.5);
+		vec2 uv_offset = _UV - uv_center;
+		float cos_a = cos(angle +  (_COLOR.b > 0.1 ? vel_angle : 0.0));
+		float sin_a = sin(angle +  (_COLOR.b > 0.1 ? vel_angle : 0.0));
+		rotated_uv = vec2(uv_offset.x * cos_a - uv_offset.y * sin_a, uv_offset.x * sin_a + uv_offset.y * cos_a) + uv_center;
+		// Construct final billboard matrix
+		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
+
+		// Preserve original scale
+		mat4 scale_mat = mat4(vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0), vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
+			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+
+		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
+	} else if (billboard_mode == 4) { // STRETCHED BILLBOARDING VERTICAL
+		// Project velocity onto view plane
+		vec3 projected_vel = velocity_dir - view_dir * dot(velocity_dir, view_dir);
+		// Calculate stretch direction
+		// Get world up vector (assuming Y is up)
+		billboard_up = vec3(0.0, 1.0, 0.0);
+		// Get direction to camera (in world space)
+		vec3 to_camera = normalize(_INV_VIEW_MATRIX[3].xyz - _MODEL_MATRIX[3].xyz);
+		// Project camera direction onto the XZ plane
+		to_camera.y = 0.0;
+		to_camera = normalize(to_camera);
+		// Construct right vector perpendicular to world up and to_camera
+		vec3 billboard_right = normalize(cross(billboard_up, to_camera));
+		// Apply custom scales to the billboard vectors
+		billboard_right *= scale_x;
+		billboard_up *= scale_y;
+		// Rotate and stretch the vectors
+		billboard_up *= stretch;
+		billboard_right *= (1.0 / sqrt(stretch));
+		// Calculate rotated _UV coordinates
+		vec2 uv_center = vec2(0.5, 0.5);
+		vec2 uv_offset = _UV - uv_center;
+		float cos_a = cos(angle);
+		float sin_a = sin(angle);
+		rotated_uv = vec2(uv_offset.x * cos_a - uv_offset.y * sin_a, uv_offset.x * sin_a + uv_offset.y * cos_a) + uv_center;
+		// Construct final billboard matrix
+		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
+
+		// Preserve original scale
+		mat4 scale_mat = mat4(vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0), vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
+			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+
+		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
+	}
+	
+	// Animation frames handling
+	if  (_COLOR.a > -0.5) {
+		float h_frames = particles_anim.x;
+		float v_frames = particles_anim.y;
+		float particle_total_frames = float(particles_anim.x * particles_anim.y);
+
+		if  (_COLOR.a >= 1.0) {
+			// Single row mode
+			// Extract row and frame progress
+			float row = floor (_COLOR.a);
+			float frame_progress = fract (_COLOR.a);
+
+			// Calculate frame within row
+			float particle_frame = floor(frame_progress * h_frames);
+
+			// Apply _UV transformation
+			rotated_uv /= vec2(h_frames, v_frames);
+			rotated_uv += vec2(
+				mod(particle_frame, h_frames) / h_frames,
+				row / v_frames
+			);
+		} else {
+			// Whole sheet mode
+			float frame = _COLOR.a * particle_total_frames;
+			float current_frame = floor(frame);
+
+			// Apply _UV transformation
+			rotated_uv /= vec2(h_frames, v_frames);
+			rotated_uv += vec2(
+				mod(current_frame, h_frames) / h_frames,
+				floor(current_frame / h_frames) / v_frames
+			);
+		}
+	}
+	return return_modelview_matrix;
+}

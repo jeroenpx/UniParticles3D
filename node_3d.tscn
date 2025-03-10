@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3 uid="uid://bwv73s117kxfr"]
+[gd_scene load_steps=15 format=3 uid="uid://bwv73s117kxfr"]
 
 [ext_resource type="Script" uid="uid://drfig6iv8pgg6" path="res://node_3d.gd" id="1_a0tk4"]
 [ext_resource type="Script" uid="uid://c2ja1eugyxfeq" path="res://addons/UniParticles3D/UniParticles3D.gd" id="1_noarx"]
@@ -125,6 +125,11 @@ material = SubResource("ShaderMaterial_a0tk4")
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_a0tk4"]
 
+[sub_resource type="Curve" id="Curve_wc5p8"]
+_limits = [0.0, 5.0, 0.0, 1.0]
+_data = [Vector2(0, 0), 0.0, 5.0, 0, 1, Vector2(1, 5), 5.0, 0.0, 1, 0]
+point_count = 2
+
 [node name="Node3D" type="Node3D"]
 script = ExtResource("1_a0tk4")
 curve_export = SubResource("Curve_a0tk4")
@@ -143,6 +148,7 @@ start_lifetime_random = Vector2(0.2, 2)
 start_speed_constant = 2.0
 start_speed_random = Vector2(0.1, 0.2)
 gravity = Vector3(0, -20, 0)
+start_size_random_square = null
 start_size_random = Vector4(0.1, 0.1, 0.4, 0.4)
 start_rotation_degrees_constant = 180.0
 use_world_space = true
@@ -159,15 +165,14 @@ enable_size_over_lifetime = Vector2i(1, 0)
 size_over_lifetime = SubResource("Curve_r3fl7")
 enable_rotation_over_lifetime = Vector2i(1, 0)
 orbit_over_lifetime = SubResource("Curve_i5arm")
-enable_color_over_lifetime = Vector2i(1, 0)
+enable_color_over_lifetime = Vector2i(1, 1)
 color_over_lifetime = SubResource("GradientTexture1D_a0tk4")
 hue_variation = 0.695
 h_frames = 2
 v_frames = 2
 frame_over_time = SubResource("Curve_jka67")
-enable_rendering = Vector2i(1, 0)
+enable_rendering = Vector2i(1, 1)
 particle_texture = ExtResource("4_jka67")
-billboard_mode = 1
 align_to_velocity = true
 metadata/_custom_type_script = "uid://c2ja1eugyxfeq"
 
@@ -178,3 +183,19 @@ mesh = SubResource("QuadMesh_r3fl7")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 visible = false
 shape = SubResource("CylinderShape3D_a0tk4")
+
+[node name="UniParticles3D2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.36538, -0.930858, 0, 0.930858, 0.36538, 0, 0, 0)
+script = ExtResource("1_noarx")
+start_lifetime_constant = 3.0
+start_speed_constant = 1.0
+enable_play_behavior = Vector2i(1, 0)
+enable_emission = Vector2i(1, 1)
+rate_over_time = 4.0
+rate_over_distance = 0.0
+enable_rotation_over_lifetime = Vector2i(1, 1)
+rotation_over_lifetime = SubResource("Curve_wc5p8")
+enable_rendering = Vector2i(1, 1)
+particle_texture = ExtResource("4_jka67")
+billboard_mode = 1
+metadata/_custom_type_script = "uid://c2ja1eugyxfeq"
