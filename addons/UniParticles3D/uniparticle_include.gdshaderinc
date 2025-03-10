@@ -67,8 +67,19 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
             
 		return_modelview_matrix = _VIEW_MATRIX * _MODEL_MATRIX * scale_mat;
 	} else if (billboard_mode == 0) { // STANDARD BILLBOARDING
-		billboard_right *= scale_x;
-		billboard_up *= scale_y;
+		if (align_to_velocity == 1){
+			// Calculate rotation to align with velocity
+			float vel_angle = atan(dot(velocity_dir, billboard_right), dot(velocity_dir, billboard_up));
+			// Rotate the billboard vectors to align with velocity
+			vec3 new_up = (billboard_up * cos(vel_angle) + billboard_right * sin(vel_angle));
+			vec3 new_right = (-billboard_up * sin(vel_angle) + billboard_right * cos(vel_angle));
+			// Apply scaling
+			billboard_right = new_right * scale_x;
+			billboard_up = new_up * scale_y;
+		} else {
+			billboard_right *= scale_x;
+			billboard_up *= scale_y;
+		}
 		// Apply additional rotation if needed
 		vec2 uv_center = vec2(0.5, 0.5);
 		vec2 uv_offset = _UV - uv_center;
@@ -123,42 +134,53 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 	} else if (billboard_mode == 1) { // STRETCHED BILLBOARDING
 		// Project velocity onto view plane
 		vec3 projected_vel = velocity_dir - view_dir * dot(velocity_dir, view_dir);
+		float proj_length = length(projected_vel);
+
 		// Improved stretch factor calculation
-		float view_aligned_factor = smoothstep(0.0, 0.3, length(projected_vel));
+		float view_aligned_factor = smoothstep(0.0, 0.3, proj_length);
 		float effective_stretch = mix(stretch, stretch * 0.25, parallel_factor * parallel_factor);
 		effective_stretch = mix(effective_stretch, stretch, view_aligned_factor);
+
 		// Calculate stretch direction
 		vec3 stretch_dir = normalize(mix(velocity_dir, projected_vel, view_aligned_factor));
-		
+
 		// Calculate angle between up vector and stretch direction
 		float vel_angle = atan(dot(stretch_dir, billboard_right), dot(stretch_dir, billboard_up));
-		if (align_to_velocity == 1) {
-			// Rotate the billboard vectors to align with velocity and apply scaling
-			billboard_right = (-billboard_up * sin(vel_angle) + billboard_right * cos(vel_angle)) * scale_x;
-			billboard_up = (billboard_up * cos(vel_angle) + billboard_right * sin(vel_angle)) * scale_y;
-		} else {
+
 		// Apply custom scales to the billboard vectors
 		billboard_right *= scale_x;
 		billboard_up *= scale_y;
-		}
+
 		// Rotate and stretch the vectors
 		vec3 new_up = (billboard_up * cos(vel_angle) + billboard_right * sin(vel_angle));
 		vec3 new_right = (-billboard_up * sin(vel_angle) + billboard_right * cos(vel_angle));
+
 		float abs_stretch = (effective_stretch);
 		billboard_up = new_up * abs_stretch;
 		billboard_right = new_right * (1.0 / sqrt(abs_stretch));
-		// Calculate rotated _UV coordinates
+		// Calculate rotated UV coordinates
 		vec2 uv_center = vec2(0.5, 0.5);
 		vec2 uv_offset = _UV - uv_center;
-		float cos_a = cos(angle +  (_COLOR.b > 0.1 ? vel_angle : 0.0));
-		float sin_a = sin(angle +  (_COLOR.b > 0.1 ? vel_angle : 0.0));
-		rotated_uv = vec2(uv_offset.x * cos_a - uv_offset.y * sin_a, uv_offset.x * sin_a + uv_offset.y * cos_a) + uv_center;
+		float cos_a = cos(angle + (align_to_velocity == 0 ? vel_angle : 0.0));
+		float sin_a = sin(angle + (align_to_velocity == 0 ? vel_angle : 0.0));
+		rotated_uv = vec2(
+			uv_offset.x * cos_a - uv_offset.y * sin_a,
+			uv_offset.x * sin_a + uv_offset.y * cos_a
+		) + uv_center;
+		
 		// Construct final billboard matrix
-		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
+		mat4 mat_world = mat4(
+			vec4(billboard_right, 0.0),
+			vec4(billboard_up, 0.0),
+			vec4(view_dir, 0.0),
+			_MODEL_MATRIX[3]);
 
 		// Preserve original scale
-		mat4 scale_mat = mat4(vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0), vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
-			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0), vec4(0.0, 0.0, 0.0, 1.0));
+		mat4 scale_mat = mat4(
+			vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0),
+			vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
+			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0),
+			vec4(0.0, 0.0, 0.0, 1.0));
 
 		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
 	} else if (billboard_mode == 4) { // STRETCHED BILLBOARDING VERTICAL
@@ -180,11 +202,17 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		// Rotate and stretch the vectors
 		billboard_up *= stretch;
 		billboard_right *= (1.0 / sqrt(stretch));
+		
+		// Calculate stretch direction
+		vec3 stretch_dir = normalize(mix(velocity_dir, projected_vel, 0.5));
+
+		// Calculate angle between up vector and stretch direction
+		float vel_angle = atan(dot(stretch_dir, billboard_right), dot(stretch_dir, billboard_up));
 		// Calculate rotated _UV coordinates
 		vec2 uv_center = vec2(0.5, 0.5);
 		vec2 uv_offset = _UV - uv_center;
-		float cos_a = cos(angle);
-		float sin_a = sin(angle);
+		float cos_a = cos(angle + (align_to_velocity == 1 ? vel_angle : 0.0));
+		float sin_a = sin(angle + (align_to_velocity == 1 ? vel_angle : 0.0));
 		rotated_uv = vec2(uv_offset.x * cos_a - uv_offset.y * sin_a, uv_offset.x * sin_a + uv_offset.y * cos_a) + uv_center;
 		// Construct final billboard matrix
 		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);

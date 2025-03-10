@@ -1838,7 +1838,7 @@ func _update_instance_shader_parameters() -> void:
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "particles_anim_tiles_mode", tiles_mode)
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "particles_anim_enabled", texture_sheet_enabled)
 	RenderingServer.instance_geometry_set_shader_parameter(_instance, "billboard_mode", billboard_mode)
-	RenderingServer.instance_geometry_set_shader_parameter(_instance, "align_to_velocity", align_to_velocity)
+	RenderingServer.instance_geometry_set_shader_parameter(_instance, "align_to_velocity", 1 if align_to_velocity else 0)
 
 
 # Helper function to get alignment basis from direction
