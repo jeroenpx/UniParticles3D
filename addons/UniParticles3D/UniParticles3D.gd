@@ -2,11 +2,38 @@
 @tool
 class_name UniParticles3D extends Node3D
 
-const SHADER = preload("UniParticleGradientMap.gdshader")
-const SHADER_ADD = preload("UniParticleGradientMapAdd.gdshader")
-const SHADER_SUB = preload("UniParticleGradientMapSub.gdshader")
-const SHADER_MULT = preload("UniParticleGradientMapMult.gdshader")
-const SHADER_PREMULT_ALPHA = preload("UniParticleGradientMapMultAlpha.gdshader")
+#region GET_SHADERS
+var SHADER:
+	get:
+		return load("%s/UniParticleGradientMap.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_ADD:
+	get:
+		return load("%s/UniParticleGradientMapAdd.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_SUB:
+	get:
+		return load("%s/UniParticleGradientMapSub.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_MULT:
+	get:
+		return load("%s/UniParticleGradientMapMult.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_PREMULT_ALPHA:
+	get:
+		return load("%s/UniParticleGradientMapMultAlpha.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_NEAREST:
+	get:
+		return load("%s/shaders_point/UniParticleGradientMapPoint.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_ADD_NEAREST:
+	get:
+		return load("%s/shaders_point/UniParticleGradientMapAddPoint.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_SUB_NEAREST:
+	get:
+		return load("%s/shaders_point/UniParticleGradientMapSubPoint.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_MULT_NEAREST:
+	get:
+		return load("%s/shaders_point/UniParticleGradientMapMultPoint.gdshader" % self.get_script().get_path().get_base_dir())
+var SHADER_PREMULT_ALPHA_NEAREST:
+	get:
+		return load("%s/shaders_point/UniParticleGradientMapMultAlphaPoint.gdshader" % self.get_script().get_path().get_base_dir())
+#endif
 
 signal finished_burst
 
@@ -16,6 +43,11 @@ enum BlendMode {
 	Subtract,
 	Multiply,
 	PremultipliedAlpha
+}
+
+enum SamplingFilter {
+	Linear = 0,
+	Nearest = 1
 }
 
 enum BillboardMode {
@@ -532,7 +564,7 @@ var texture_sheet_enabled: bool:
 ## Curve controlling frame progression over particle lifetime
 @export var frame_over_time: Curve
 
-# !@ Rendering! (particle_texture,tint_color,billboard_mode,velocity_stretch,length_stretch,align_to_velocity,blend_mode,override_material,custom_mesh,render_priority)
+# !@ Rendering! (particle_texture,tint_color,billboard_mode,velocity_stretch,length_stretch,align_to_velocity,blend_mode,override_material,custom_mesh,render_priority,sampling_filter)
 @export var enable_rendering: Vector2i = Vector2i.ZERO
 
 ## Texture to use for each particle
@@ -569,6 +601,12 @@ var texture_sheet_enabled: bool:
 	set(value):
 		render_priority = value if value is int else 0
 		_material_dirty = true
+## Render sampling filter.
+@export var sampling_filter: SamplingFilter = SamplingFilter.Linear:
+	set(value):
+		sampling_filter = value if value is SamplingFilter else SamplingFilter.Linear
+		_material_dirty = true
+
 ## Use override material
 @export var override_material: Material = null:
 	set(value):
@@ -676,15 +714,16 @@ func _create_material() -> Material:
 	# Select shader based on blend mode
 	match blend_mode:
 		BlendMode.Mix:
-			material.shader = SHADER
+			material.shader = SHADER if sampling_filter == SamplingFilter.Linear else SHADER_NEAREST
 		BlendMode.Add:
-			material.shader = SHADER_ADD
+			material.shader = SHADER_ADD if sampling_filter == SamplingFilter.Linear else SHADER_ADD_NEAREST
 		BlendMode.Subtract:
-			material.shader = SHADER_SUB
+			material.shader = SHADER_SUB if sampling_filter == SamplingFilter.Linear else SHADER_SUB_NEAREST
 		BlendMode.Multiply:
-			material.shader = SHADER_MULT
+			material.shader = SHADER_MULT if sampling_filter == SamplingFilter.Linear else SHADER_MULT_NEAREST
 		BlendMode.PremultipliedAlpha:
-			material.shader = SHADER_PREMULT_ALPHA
+			material.shader = SHADER_PREMULT_ALPHA if sampling_filter == SamplingFilter.Linear else SHADER_PREMULT_ALPHA_NEAREST
+
 	if render_priority is int:
 		material.render_priority = render_priority
 	if particle_texture:

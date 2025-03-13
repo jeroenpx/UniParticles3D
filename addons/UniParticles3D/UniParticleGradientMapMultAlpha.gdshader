@@ -1,6 +1,5 @@
 shader_type spatial;
-render_mode unshaded, blend_premul_alpha, depth_draw_opaque, cull_disabled;
-
+render_mode unshaded, blend_premul_alpha, depth_draw_never, cull_disabled, diffuse_burley, specular_disabled, shadows_disabled;
 #include "uniparticle_include.gdshaderinc"
 
 varying vec2 rotated_uv;

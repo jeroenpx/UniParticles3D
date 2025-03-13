@@ -1,5 +1,10 @@
-uniform sampler2D albedo_texture : source_color, repeat_disable;
-uniform sampler2D gradient_texture : source_color, hint_default_white,repeat_disable;
+#ifdef POINT_FILTERING
+uniform sampler2D albedo_texture : source_color, repeat_disable, filter_nearest;
+#else
+uniform sampler2D albedo_texture : source_color, repeat_disable, filter_linear_mipmap;
+#endif
+
+uniform sampler2D gradient_texture : source_color, hint_default_white, repeat_disable;
 
 instance uniform int billboard_mode = 0;
 instance uniform int align_to_velocity = 0;
@@ -47,16 +52,16 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 	// Setup billboard orientation vectors
 	vec3 billboard_right = normalize(_INV_VIEW_MATRIX[0].xyz);
 	vec3 billboard_up = normalize(_INV_VIEW_MATRIX[1].xyz);
-	
+
 	// Keep track of the rotation we need to apply
 	float total_angle = angle;
-	
+
 	if (billboard_mode == 2) {
 		// NO BILLBOARD WANTED
 		// Instead of rotating UVs, apply rotation to the model matrix
 		float cos_a = cos(angle);
 		float sin_a = sin(angle);
-		
+
 		// Create rotation matrix around Z axis
 		mat4 rot_mat = mat4(
 			vec4(cos_a, -sin_a, 0.0, 0.0),
@@ -64,14 +69,14 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 			vec4(0.0, 0.0, 1.0, 0.0),
 			vec4(0.0, 0.0, 0.0, 1.0)
 		);
-        
+
 		// Use the original model matrix but apply custom scaling and rotation
 		mat4 scale_mat = mat4(
 			vec4(length(_MODEL_MATRIX[0].xyz) * scale_x, 0.0, 0.0, 0.0),
 			vec4(0.0, length(_MODEL_MATRIX[1].xyz) * scale_y, 0.0, 0.0),
 			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0),
 			vec4(0.0, 0.0, 0.0, 1.0));
-            
+
 		return_modelview_matrix = _VIEW_MATRIX * _MODEL_MATRIX * rot_mat * scale_mat;
 	} else if (billboard_mode == 0) { // STANDARD BILLBOARDING
 		float vel_angle = 0.0;
@@ -88,7 +93,7 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 			billboard_right *= scale_x;
 			billboard_up *= scale_y;
 		}
-		
+
 		// Apply rotation to the billboard
 		float cos_a = cos(angle);
 		float sin_a = sin(angle);
@@ -96,14 +101,14 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		vec3 rotated_up = billboard_right * sin_a + billboard_up * cos_a;
 		billboard_right = rotated_right;
 		billboard_up = rotated_up;
-		
+
 		// Simple billboard matrix
 		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
 		// Preserve original scale
 		mat4 scale_mat = mat4(vec4(length(_MODEL_MATRIX[0].xyz), 0.0, 0.0, 0.0), vec4(0.0, length(_MODEL_MATRIX[1].xyz), 0.0, 0.0),
 			vec4(0.0, 0.0, length(_MODEL_MATRIX[2].xyz), 0.0), vec4(0.0, 0.0, 0.0, 1.0));
 		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
-	} else if (billboard_mode == 3) { 
+	} else if (billboard_mode == 3) {
 		// VERTICAL BILLBOARDING - Y-axis constrained
 		// Get world up vector (assuming Y is up)
 		vec3 world_up = vec3(0.0, 1.0, 0.0);
@@ -117,7 +122,7 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		// Apply custom scales
 		right *= scale_x;
 		world_up *= scale_y;
-		
+
 		// Apply rotation to the billboard
 		float cos_a = cos(angle);
 		float sin_a = sin(angle);
@@ -125,7 +130,7 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		vec3 rotated_up = right * sin_a + world_up * cos_a;
 		right = rotated_right;
 		world_up = rotated_up;
-		
+
 		// Construct vertical billboard matrix
 		mat4 mat_world = mat4(
 			vec4(right, 0.0),
@@ -166,7 +171,7 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		float abs_stretch = (effective_stretch);
 		billboard_up = new_up * abs_stretch;
 		billboard_right = new_right * (1.0 / sqrt(abs_stretch));
-		
+
 		// Apply particle rotation
 		float additional_angle = angle + (align_to_velocity == 0 ? vel_angle : 0.0);
 		float cos_a = cos(additional_angle);
@@ -175,7 +180,7 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		vec3 rotated_up = billboard_right * sin_a + billboard_up * cos_a;
 		billboard_right = rotated_right;
 		billboard_up = rotated_up;
-		
+
 		// Construct final billboard matrix
 		mat4 mat_world = mat4(
 			vec4(billboard_right, 0.0),
@@ -210,13 +215,13 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		// Rotate and stretch the vectors
 		billboard_up *= stretch;
 		billboard_right *= (1.0 / sqrt(stretch));
-		
+
 		// Calculate stretch direction
 		vec3 stretch_dir = normalize(mix(velocity_dir, projected_vel, 0.5));
 
 		// Calculate angle between up vector and stretch direction
 		float vel_angle = atan(dot(stretch_dir, billboard_right), dot(stretch_dir, billboard_up));
-		
+
 		// Apply particle rotation
 		float additional_angle = angle + (align_to_velocity == 1 ? vel_angle : 0.0);
 		float cos_a = cos(additional_angle);
@@ -225,7 +230,7 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 		vec3 rotated_up = billboard_right * sin_a + billboard_up * cos_a;
 		billboard_right = rotated_right;
 		billboard_up = rotated_up;
-		
+
 		// Construct final billboard matrix
 		mat4 mat_world = mat4(vec4(billboard_right, 0.0), vec4(billboard_up, 0.0), vec4(view_dir, 0.0), _MODEL_MATRIX[3]);
 
@@ -235,10 +240,10 @@ mat4 vertex_common(mat4 _MODEL_MATRIX, mat4 _INV_VIEW_MATRIX, mat4 _VIEW_MATRIX,
 
 		return_modelview_matrix = _VIEW_MATRIX * mat_world * scale_mat;
 	}
-	
-	// Now we use unmodified UVs for animation 
+
+	// Now we use unmodified UVs for animation
 	final_uv = _UV;
-	
+
 	// Animation frames handling
 	if  (_COLOR.a > -0.5) {
 		float h_frames = particles_anim.x;
