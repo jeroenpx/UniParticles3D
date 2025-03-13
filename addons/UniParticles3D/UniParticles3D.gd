@@ -790,6 +790,7 @@ func _create_shared_quad_mesh() -> RID:
 	return _shared_quad_mesh
 
 func _create_multimesh() -> void:
+	print("Called creating multimesh")
 	# Cleanup existing multimesh if any
 	if _multimesh != RID():
 		if _instance != RID():
@@ -1117,7 +1118,7 @@ func _process(delta: float) -> void:
 	# Update visible count immediately when particles die
 	if _visible_count != alive_count:
 		_visible_count = alive_count
-		if is_instance_valid(_multimesh):
+		if _multimesh.is_valid():
 			RenderingServer.multimesh_set_visible_instances(_multimesh, alive_count)
 		else:
 			_create_multimesh()
