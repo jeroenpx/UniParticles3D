@@ -282,7 +282,7 @@ var has_start_delay:bool:
 ## Enable debug logging
 @export var debugging: bool = false
 
-# !@ Emission Module (max_particles,emission_type,rate_over_time,rate_over_distance,bursts)
+# !@ Emission Module (max_particles,max_emissions_per_frame,emission_type,rate_over_time,rate_over_distance,bursts)
 @export var enable_emission: Vector2i = Vector2i(1, 0)
 var emission_visible:bool:
 	get: return enable_emission.y == 1
@@ -298,6 +298,11 @@ var emitting: bool:
 @export var max_particles: int = 400:
 	set(value):
 		max_particles = value
+		_core_params_dirty = true
+## Maximum number of particles that can be emitted in a single frame
+@export var max_emissions_per_frame: int = 100:
+	set(value):
+		max_emissions_per_frame = value if value is int else 100
 		_core_params_dirty = true
 ## Rate of particle emission per second (for Time)
 @export var rate_over_time: float = 10.0:
@@ -742,7 +747,7 @@ func _create_material() -> Material:
 
 func _create_shared_quad_mesh() -> RID:
 	# If we have a custom mesh, just return its RID directly
-	if custom_mesh:
+	if custom_mesh != null:
 		if debugging: print("Using custom mesh")
 		return custom_mesh.get_rid()
 
@@ -999,7 +1004,7 @@ func _update_particle(t: float, particle: Particle) -> void:
 	_buffer[idx + 19] = stretch  # stretch factor
 
 
-func _emit_particle(_burst_spot:float = 0.0) -> void:
+func _emit_particle(_burst_spot:float = 0.0, has_override_pos:bool = false, override_position:Vector3 = Vector3.ZERO) -> void:
 	if not emitting:
 		return
 
@@ -1007,69 +1012,50 @@ func _emit_particle(_burst_spot:float = 0.0) -> void:
 		return
 
 	var particle: Particle
-
+	var reusing_particle:bool = false
 	if _particles.size() >= max_particles:
-		# Find multiple oldest particles when needed for bursts
-		var dead_count = 0
-		var oldest_particles = []
-
-		# First count actually dead particles
+		# Find oldest dead particle for reuse
 		for p in _particles:
 			if p.dead:
-				dead_count += 1
-				oldest_particles.append(p)
+				particle = p
+				reusing_particle = true
+				break
 
-		# If we don't have enough dead particles, find oldest living ones
-		if dead_count < max_particles:
-			# Sort particles by creation time
-			var living_particles = _particles.filter(func(p): return not p.dead)
-			living_particles.sort_custom(func(a, b): return a.creation_time < b.creation_time)
+		if not reusing_particle:
+			# If we failed at findinga dead particle to reuse, let's try to find the oldest particle to reuse.
+			var oldest_time:float = _time + 1.0
+			for p in _particles:
+				if p.creation_time < oldest_time:
+					particle = p
+					oldest_time = p.creation_time
+					reusing_particle = true
 
-			# Add oldest living particles to our reuse list
-			for p in living_particles:
-				if oldest_particles.size() < max_particles / 4: # Reuse up to 25% of particles at once
-					oldest_particles.append(p)
-				else:
-					break
-
-		# Reuse the first particle in our oldest list
-		if oldest_particles.size() > 0:
-			particle = oldest_particles[0]
-			# Mark it as dead first to ensure it's not visible during reinitialization
+		if reusing_particle:
 			particle.dead = true
 			# Force update the particle's buffer entry to make it invisible
 			var idx = particle.index * 20
 			_buffer[idx + 15] = 0.0  # Set alpha to 0
 			RenderingServer.multimesh_set_buffer(_multimesh, _buffer)
-		else:
-			# Fallback to oldest particle if something went wrong
-			var oldest_time = INF
-			var oldest_index = 0
-			for i in range(_particles.size()):
-				var p = _particles[i]
-				if not p.dead and p.creation_time < oldest_time:
-					oldest_time = p.creation_time
-					oldest_index = i
-			particle = _particles[oldest_index]
-			particle.dead = true
-			var idx = particle.index * 20
-			_buffer[idx + 15] = 0.0
+			# Now initialize the particle
+			particle.creation_time = _time
+			particle.burst_spot = _burst_spot
+			_initialize_particle(particle)
+			if has_override_pos and use_world_space:
+				particle.creation_position = override_position
+			# Finally mark it as alive and update it
+			particle.dead = false
+			_update_particle(0.0, particle)
+			return
 
-		# Now initialize the particle
-		particle.creation_time = _time
-		particle.burst_spot = _burst_spot
-		_initialize_particle(particle)
-		# Finally mark it as alive and update it
-		particle.dead = false
-		_update_particle(0.0, particle)
-	else:
-		# Create new particle if we haven't reached max yet
-		particle = _create_particle()
-		particle.creation_time = _time
-		particle.burst_spot = _burst_spot
-		_initialize_particle(particle)
-		_update_particle(0.0, particle)
-		_particles.append(particle)
+	# Create new particle if we haven't reached max yet
+	particle = _create_particle()
+	particle.creation_time = _time
+	particle.burst_spot = _burst_spot
+	_initialize_particle(particle)
+	if has_override_pos and use_world_space:
+		particle.creation_position = override_position
+	_update_particle(0.0, particle)
+	_particles.append(particle)
 
 func update_instance_transform():
 	if use_world_space:
@@ -1131,7 +1117,10 @@ func _process(delta: float) -> void:
 	# Update visible count immediately when particles die
 	if _visible_count != alive_count:
 		_visible_count = alive_count
-		RenderingServer.multimesh_set_visible_instances(_multimesh, alive_count)
+		if is_instance_valid(_multimesh):
+			RenderingServer.multimesh_set_visible_instances(_multimesh, alive_count)
+		else:
+			_create_multimesh()
 		if debugging: print("Updated visible count to: ", alive_count)
 
 	# Check if we've hit duration and need to loop
@@ -1167,7 +1156,6 @@ func _process(delta: float) -> void:
 			_emission_accumulator.x += delta
 
 			# Add safety check for infinite loop prevention
-			var max_emissions_per_frame = 1000  # Prevent freezing from too many particles
 			var emission_count = 0
 
 			# Emit particles based on accumulated time
@@ -1185,14 +1173,20 @@ func _process(delta: float) -> void:
 		if rate_over_distance > 0.001:
 			var distance = global_position.distance_to(_last_position)
 			_emission_accumulator.y += rate_over_distance * distance
-			var particles_to_emit = min(floor(_emission_accumulator.y), 1000)  # Limit particles per frame
+			var particles_to_emit = min(floor(_emission_accumulator.y), max_emissions_per_frame)  # Limit particles per frame
 			_emission_accumulator.y -= particles_to_emit
-			_last_position = global_position
 
-			# Emit distance-based particles
-			while particles_to_emit > 0:
-				_emit_particle()
-				particles_to_emit -= 1
+			# Calculate movement vector for interpolation
+			var movement_vector = global_position - _last_position
+
+			# Emit particles spread along the movement path
+			for i in range(min(particles_to_emit,max_emissions_per_frame)):
+				# Calculate interpolation factor (0 to 1) for this particle
+				var t = (i as float) / (particles_to_emit as float)
+				# Emit particle at interpolated position
+				_emit_particle(0.0, true, _last_position + movement_vector * t)
+
+			_last_position = global_position
 
 	# Handle bursts
 	for burst in _active_bursts:
@@ -1289,9 +1283,6 @@ func _initialize_particle(particle: Particle) -> void:
 	# Store the global position at creation time, but don't include it in initial position calculations
 	particle.creation_position = global_position if use_world_space else Vector3.ZERO
 
-	# When not in world space, we need to consider the parent's transform
-	var spawn_transform = transform if not use_world_space else Transform3D()
-
 	# Initialize lifetime
 	particle.lifetime = start_lifetime
 
@@ -1336,6 +1327,7 @@ func _initialize_particle(particle: Particle) -> void:
 	if spherize_direction > 0.001:
 		var spherized_direction:Vector3 = particle.position.normalized()
 		particle.direction = lerp(particle.direction, spherized_direction, spherize_direction)
+
 	# Apply random direction if needed
 	if random_direction > 0.001:
 		var random_phi = _rng.randf() * TAU
@@ -1351,12 +1343,6 @@ func _initialize_particle(particle: Particle) -> void:
 		particle.direction = particle.direction.lerp(random_dir, random_direction).normalized()
 
 	spawn_direction = particle.direction
-		## Transform to world space only once at the end
-	#if not use_world_space:
-		## Transform both position and velocity to world space
-		#particle.position = spawn_transform.basis * particle.position + spawn_transform.origin
-		#particle.direction = spawn_transform.basis * particle.direction
-		#particle.base_velocity = spawn_transform.basis * particle.base_velocity
 
 	# Apply rotation offset to base direction before other modifications
 	if rotation_offset != Vector3.ZERO:
@@ -1805,6 +1791,8 @@ func play(_clear_on_play:bool = true) -> void:
 		return
 
 	update_instance_transform.call_deferred()
+	# Create multimesh if needed
+	_create_multimesh()
 	# Cache child particles on first play
 	_cache_child_particles()
 	# Play any child particles that aren't already playing
@@ -1815,8 +1803,6 @@ func play(_clear_on_play:bool = true) -> void:
 			child.loop = loop
 			child.play(_clear_on_play)
 
-	# Create multimesh if needed
-	_create_multimesh()
 
 	if _clear_on_play:
 		clear(false)
