@@ -790,7 +790,6 @@ func _create_shared_quad_mesh() -> RID:
 	return _shared_quad_mesh
 
 func _create_multimesh() -> void:
-	print("Called creating multimesh")
 	# Cleanup existing multimesh if any
 	if _multimesh != RID():
 		if _instance != RID():
