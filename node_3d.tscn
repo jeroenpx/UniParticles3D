@@ -1,12 +1,7 @@
-[gd_scene load_steps=15 format=3 uid="uid://bwv73s117kxfr"]
+[gd_scene load_steps=13 format=3 uid="uid://bwv73s117kxfr"]
 
-[ext_resource type="Script" uid="uid://drfig6iv8pgg6" path="res://node_3d.gd" id="1_a0tk4"]
 [ext_resource type="Script" uid="uid://c2ja1eugyxfeq" path="res://addons/UniParticles3D/UniParticles3D.gd" id="1_noarx"]
 [ext_resource type="Texture2D" uid="uid://cngwyurxcqj51" path="res://icon.svg" id="4_jka67"]
-
-[sub_resource type="Curve" id="Curve_a0tk4"]
-_data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(1e-05, 0.460668), 0.0, 0.0, 0, 0, Vector2(2e-05, 0), 0.0, 0.0, 0, 0, Vector2(1, 1), 0.0, 0.0, 0, 0]
-point_count = 4
 
 [sub_resource type="Curve" id="Curve_r3fl7"]
 _data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(0.344595, 1), 0.0, 0.0, 0, 0, Vector2(0.831081, 0.237758), 0.0, 0.0, 0, 0]
@@ -131,8 +126,6 @@ _data = [Vector2(0, 0), 0.0, 5.0, 0, 1, Vector2(1, 5), 5.0, 0.0, 1, 0]
 point_count = 2
 
 [node name="Node3D" type="Node3D"]
-script = ExtResource("1_a0tk4")
-curve_export = SubResource("Curve_a0tk4")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.984689, 0.174318, 0, -0.174318, 0.984689, 0, 0.690435, 2.31462)
@@ -148,7 +141,6 @@ start_lifetime_random = Vector2(0.2, 2)
 start_speed_constant = 2.0
 start_speed_random = Vector2(0.1, 0.2)
 gravity = Vector3(0, -20, 0)
-start_size_random_square = null
 start_size_random = Vector4(0.1, 0.1, 0.4, 0.4)
 start_rotation_degrees_constant = 180.0
 use_world_space = true
@@ -156,7 +148,7 @@ enable_play_behavior = Vector2i(1, 0)
 max_particles = 500
 rate_over_time = 20.0
 rate_over_distance = 5.0
-enable_shape = Vector2i(1, 1)
+enable_shape = Vector2i(1, 0)
 radius = 0.58
 radius_thickness = 0.234
 angle = 25.5

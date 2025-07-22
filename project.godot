@@ -11,9 +11,10 @@ config_version=5
 [application]
 
 config/name="UniParticle3D"
+run/main_scene="uid://bwv73s117kxfr"
 config/features=PackedStringArray("4.4", "Forward Plus")
 config/icon="res://icon.svg"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/UniParticles3D/plugin.cfg", "res://addons/kenyoni/plugin_reloader/plugin.cfg")
+enabled=PackedStringArray("res://addons/UniParticles3D/plugin.cfg")
