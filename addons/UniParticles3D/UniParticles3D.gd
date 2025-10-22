@@ -540,32 +540,32 @@ var texture_sheet_enabled: bool:
 @export var h_frames: int = 1:
 	set(value):
 		h_frames = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## Number of vertical frames in the texture sheet
 @export var v_frames: int = 1:
 	set(value):
 		v_frames = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## How to tile the texture sheet
 @export var tiles_mode: TextureSheetTiles = TextureSheetTiles.WHOLE_SHEET:
 	set(value):
 		tiles_mode = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## For single row mode, whether to use a random row
 @export var use_random_starting_tile: bool = true:
 	set(value):
 		use_random_starting_tile = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## For single row mode with random_row disabled, which row to use
 @export_range(0, 127) var start_index_tile: int = 0:
 	set(value):
 		start_index_tile = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## Animation speed multiplier
 @export var animation_cycles: float = 1.0:
 	set(value):
 		animation_cycles = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## Curve controlling frame progression over particle lifetime
 @export var frame_over_time: Curve
 
@@ -580,12 +580,12 @@ var texture_sheet_enabled: bool:
 @export var tint_color:Color = Color.WHITE:
 	set(value):
 		tint_color = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## Billboard rendering mode
 @export var billboard_mode: BillboardMode = BillboardMode.Standard:
 	set(value):
 		billboard_mode = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## How much to stretch based on velocity (0 = no stretch)
 # @only_show_if(is_type_billboard_stretched)
 @export_range(-10.0, 10.0) var velocity_stretch: float = 0.0
@@ -595,7 +595,7 @@ var texture_sheet_enabled: bool:
 @export var align_to_velocity:bool = false:
 	set(value):
 		align_to_velocity = value
-		_update_instance_shader_parameters()
+		_update_shader_parameters()
 ## How particles blend with the background
 @export var blend_mode: BlendMode = BlendMode.Mix:
 	set(value):
@@ -747,6 +747,8 @@ func _create_material() -> Material:
 		material.set_shader_parameter("gradient_texture", color_over_lifetime)
 	else:
 		if debugging: print("No gradient texture set")
+	
+	_update_material_shader_parameters(material)
 
 	return material
 
@@ -831,9 +833,6 @@ func _create_multimesh() -> void:
 		RenderingServer.instance_set_transform(_instance, transform)
 	_last_transform = global_transform
 
-	# Set initial shader parameters
-	_update_instance_shader_parameters()
-
 	RenderingServer.multimesh_set_mesh(_multimesh, mesh)
 
 	# Allocate with transform, color and custom data
@@ -848,6 +847,9 @@ func _create_multimesh() -> void:
 	if shared_material:
 		_shared_material = _create_material()
 		RenderingServer.instance_geometry_set_material_override(_instance, _shared_material)
+	
+	# Set initial shader parameters
+	_update_shader_parameters()
 	
 	RenderingServer.instance_set_layer_mask(_instance, rendering_layer)
 	
@@ -1865,6 +1867,28 @@ func stop(also_clear:bool = false) -> void:
 	if also_clear:
 		clear()
 
+func _update_shader_parameters() -> void:
+	if shared_material and not _shared_material == override_material and _shared_material is ShaderMaterial:
+		# Switch to normal uniform parameters for all built-in generated materials
+		# There is no difference and instance uniforms have heavy limitations on web
+		_update_material_shader_parameters(_shared_material as ShaderMaterial)
+	else:
+		# Still use instances for "override materials" for backwards compatibility
+		# (we don't want to write to the material since it might be shared elsewhere)
+		_update_instance_shader_parameters()
+
+# Shader Parameters OPTION A: write particle settings shared across all particles on the Material
+func _update_material_shader_parameters(m: ShaderMaterial) -> void:
+	m.set_shader_parameter("particles_anim_h_frames", h_frames)
+	m.set_shader_parameter("particles_anim_v_frames", v_frames)
+	m.set_shader_parameter("particles_anim_tiles_mode", tiles_mode)# not used?
+	m.set_shader_parameter("particles_anim_enabled", texture_sheet_enabled)# not used?
+	m.set_shader_parameter("billboard_mode", billboard_mode)
+	m.set_shader_parameter("align_to_velocity", 1 if align_to_velocity else 0)
+	if tint_color != null:
+		m.set_shader_parameter("tint_color", tint_color)
+
+# Shader Parameters OPTION B: write particle settings shared across all particles on the MultiMesh
 func _update_instance_shader_parameters() -> void:
 	if _instance == RID():
 		return

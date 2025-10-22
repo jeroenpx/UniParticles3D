@@ -6,11 +6,11 @@ uniform sampler2D albedo_texture : source_color, repeat_disable, filter_linear_m
 
 uniform sampler2D gradient_texture : source_color, hint_default_white, repeat_disable;
 
-instance uniform int billboard_mode = 0;
-instance uniform int align_to_velocity = 0;
-instance uniform int particles_anim_h_frames : hint_range(1, 128) = 1;
-instance uniform int particles_anim_v_frames : hint_range(1, 128) = 1;
-instance uniform vec4 tint_color:source_color = vec4(1.0);
+uniform int billboard_mode = 0;
+uniform int align_to_velocity = 0;
+uniform int particles_anim_h_frames : hint_range(1, 128) = 1;
+uniform int particles_anim_v_frames : hint_range(1, 128) = 1;
+uniform vec4 tint_color:source_color = vec4(1.0);
 
 vec3 hue_change(vec3 input_color, float shift_hue) {
 	vec3 color_hsv;
